@@ -2,6 +2,8 @@ fastapi
 uvicorn[standard]
 pydantic
 apscheduler
+tzlocal
+tzdata
 # Gmail / Calendar / Claude (shared pull.py):
 google-auth
 google-auth-oauthlib
