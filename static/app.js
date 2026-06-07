@@ -65,6 +65,7 @@ function renderTodos() {
   view.todo.querySelectorAll(".todo").forEach((el) =>
     el.addEventListener("click", () => toggleTodo(Number(el.dataset.id)))
   );
+  setHeader();
 }
 
 function renderCalendar() {
@@ -108,10 +109,30 @@ function renderEmails() {
       .join("");
 }
 
+function setHeader() {
+  const now = new Date();
+  const h = now.getHours();
+  const part = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const greetEl = document.getElementById("greeting");
+  if (greetEl) greetEl.textContent = `${part}, Tom`;
+
+  const date = now.toLocaleDateString(undefined, {
+    weekday: "long", month: "long", day: "numeric",
+  });
+  const open = state.todos.filter((t) => !t.done).length;
+  const events = state.calendar.length;
+  const bits = [date];
+  bits.push(open ? `${open} open task${open === 1 ? "" : "s"}` : "all clear ✓");
+  if (events) bits.push(`${events} event${events === 1 ? "" : "s"}`);
+  const sub = document.getElementById("subline");
+  if (sub) sub.textContent = bits.join("  ·  ");
+}
+
 function renderAll() {
   renderTodos();
   renderCalendar();
   renderEmails();
+  setHeader();
 }
 
 // ── Data ─────────────────────────────────────────────────────────────────
