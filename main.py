@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-APP_VERSION = "0.5.0"
+APP_VERSION = "0.5.1"
 app = FastAPI(title="TomOS API", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
