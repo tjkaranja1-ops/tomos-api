@@ -43,6 +43,12 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
+def _ascii(s: str) -> str:
+    """Strip BOM / any non-ASCII bytes a shell may have injected when setting
+    an env var (PowerShell stdin is a known offender)."""
+    return s.strip().encode("ascii", "ignore").decode("ascii")
+
+
 def _env_json(*names):
     """Read JSON from the first present env var; supports *_B64 (base64) or raw."""
     for name in names:
@@ -50,9 +56,15 @@ def _env_json(*names):
         if not val:
             continue
         if name.endswith("_B64"):
-            val = base64.b64decode(val).decode("utf-8")
+            val = base64.b64decode(_ascii(val)).decode("utf-8")
         return json.loads(val)
     return None
+
+
+def _anthropic_client():
+    """Anthropic client with a sanitized key (defends against a BOM-tainted env var)."""
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    return anthropic.Anthropic(api_key=_ascii(key)) if key else anthropic.Anthropic()
 
 
 def get_creds():
@@ -151,7 +163,7 @@ def analyze(emails, events):
     if not emails:
         return [], []
 
-    client = anthropic.Anthropic()
+    client = _anthropic_client()
 
     email_block = "\n".join(
         f"{i+1}. From: {e['from']}\n   Subject: {e['subject']}\n   Preview: {e['snippet']}"
