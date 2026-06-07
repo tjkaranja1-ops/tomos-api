@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+apscheduler
+# Gmail / Calendar / Claude (shared pull.py):
+google-auth
+google-auth-oauthlib
+google-api-python-client
+anthropic

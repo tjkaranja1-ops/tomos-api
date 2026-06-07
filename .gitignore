@@ -1,0 +1,9 @@
+# Secrets — never commit these (they go to Railway as env vars instead)
+credentials.json
+token.json
+.env
+
+# Local state
+tomos.db
+__pycache__/
+*.pyc

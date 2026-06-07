@@ -1,0 +1,119 @@
+:root {
+  --bg: #0b0d12;
+  --surface: #151922;
+  --surface-2: #1d2430;
+  --border: #262e3b;
+  --text: #e7ecf3;
+  --muted: #8893a5;
+  --accent: #4f8cff;
+  --green: #34d399;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding-bottom: calc(64px + var(--safe-bottom));
+}
+
+/* Top bar */
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: calc(12px + var(--safe-top)) 18px 12px;
+  background: rgba(11,13,18,0.85);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 { font-size: 20px; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
+.refresh {
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  width: 40px; height: 40px; font-size: 20px; cursor: pointer;
+  transition: transform .2s, background .2s;
+}
+.refresh:active { background: var(--accent); }
+.refresh.spin { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Panels */
+main { padding: 14px; max-width: 640px; margin: 0 auto; }
+.panel { display: none; }
+.panel.active { display: block; animation: fade .25s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+.section-label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; margin: 4px 2px 10px; }
+
+/* Cards */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+}
+
+/* To-do items */
+.todo {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 14px 16px; margin-bottom: 10px;
+  cursor: pointer; transition: opacity .2s, background .15s;
+}
+.todo:active { background: var(--surface-2); }
+.todo .box {
+  flex: 0 0 24px; height: 24px; border-radius: 7px;
+  border: 2px solid var(--muted); margin-top: 1px;
+  display: grid; place-items: center; transition: all .15s;
+}
+.todo.done .box { background: var(--green); border-color: var(--green); }
+.todo.done .box::after { content: "✓"; color: #06281c; font-size: 15px; font-weight: 900; }
+.todo .text { flex: 1; }
+.todo.done .text { color: var(--muted); text-decoration: line-through; }
+.todo .meta { display: block; color: var(--muted); font-size: 12px; margin-top: 3px; }
+
+/* Calendar */
+.event { border-left: 3px solid var(--accent); padding-left: 12px; }
+.event .when { color: var(--accent); font-size: 13px; font-weight: 600; }
+.event .what { font-weight: 600; }
+.event .where { color: var(--muted); font-size: 13px; }
+
+/* Emails */
+.email .from { font-weight: 700; }
+.email .subject { color: var(--text); }
+.email .reason { color: var(--amber); font-size: 13px; font-style: italic; margin-top: 4px; }
+
+/* Empty / loading */
+.empty { text-align: center; color: var(--muted); padding: 48px 20px; }
+.empty .big { font-size: 40px; margin-bottom: 8px; opacity: .5; }
+
+/* Tab bar */
+.tabbar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+  display: flex; background: rgba(15,18,24,0.92); backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  padding-bottom: var(--safe-bottom);
+}
+.tab {
+  flex: 1; background: none; border: none; color: var(--muted);
+  font-size: 11px; font-weight: 600; padding: 9px 0 8px; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  transition: color .15s;
+}
+.tab span { font-size: 20px; }
+.tab.active { color: var(--accent); }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: calc(80px + var(--safe-bottom)); left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--surface-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 18px; font-size: 14px; opacity: 0; pointer-events: none;
+  transition: all .25s; z-index: 20;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
