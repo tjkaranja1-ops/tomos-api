@@ -15,6 +15,7 @@ import os
 import sys
 import json
 import re
+import base64
 import datetime
 from pathlib import Path
 
@@ -42,28 +43,39 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
+def _env_json(*names):
+    """Read JSON from the first present env var; supports *_B64 (base64) or raw."""
+    for name in names:
+        val = os.environ.get(name)
+        if not val:
+            continue
+        if name.endswith("_B64"):
+            val = base64.b64decode(val).decode("utf-8")
+        return json.loads(val)
+    return None
+
+
 def get_creds():
     creds = None
 
     # Load existing token: prefer the on-disk/volume copy, fall back to env seed.
     if TOKEN_FILE.exists():
         creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
-    elif os.environ.get("GOOGLE_TOKEN_JSON"):
-        creds = Credentials.from_authorized_user_info(
-            json.loads(os.environ["GOOGLE_TOKEN_JSON"]), SCOPES
-        )
+    else:
+        token_info = _env_json("GOOGLE_TOKEN_B64", "GOOGLE_TOKEN_JSON")
+        if token_info:
+            creds = Credentials.from_authorized_user_info(token_info, SCOPES)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
             # No usable token — run the interactive flow (local only).
+            cred_info = _env_json("GOOGLE_CREDENTIALS_B64", "GOOGLE_CREDENTIALS_JSON")
             if CREDENTIALS_FILE.exists():
                 flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
-            elif os.environ.get("GOOGLE_CREDENTIALS_JSON"):
-                flow = InstalledAppFlow.from_client_config(
-                    json.loads(os.environ["GOOGLE_CREDENTIALS_JSON"]), SCOPES
-                )
+            elif cred_info:
+                flow = InstalledAppFlow.from_client_config(cred_info, SCOPES)
             else:
                 sys.exit(
                     "ERROR: no Google credentials found (need credentials.json or "
