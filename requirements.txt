@@ -4,6 +4,7 @@ pydantic
 apscheduler
 tzlocal
 tzdata
+feedparser
 # Gmail / Calendar / Claude (shared pull.py):
 google-auth
 google-auth-oauthlib

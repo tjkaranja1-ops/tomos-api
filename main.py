@@ -13,6 +13,7 @@ no laptop involved.
 import os
 import re
 import json
+import threading
 from pathlib import Path
 from datetime import datetime
 from contextlib import asynccontextmanager
@@ -27,6 +28,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 import pull
 import db
+import news
 
 STATIC_DIR = Path(__file__).parent / "static"
 # Hour (0-23) to run the automatic daily pull in the cloud.
@@ -47,13 +49,15 @@ async def lifespan(app: FastAPI):
         misfire_grace_time=3600,
     )
     scheduler.start()
+    # Warm the news cache in the background so the first app load is instant.
+    threading.Thread(target=news.get_news, daemon=True).start()
     try:
         yield
     finally:
         scheduler.shutdown(wait=False)
 
 
-APP_VERSION = "0.5.1"
+APP_VERSION = "0.6.0"
 app = FastAPI(title="TomOS API", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
@@ -211,6 +215,11 @@ def calendar():
 
 
 # ── Emails ───────────────────────────────────────────────────────────────────
+
+@app.get("/news")
+def news_endpoint(force: bool = False):
+    return news.get_news(force=force)
+
 
 @app.get("/emails")
 def emails():

@@ -4,11 +4,12 @@ const API = ""; // same origin
 const $ = (sel) => document.querySelector(sel);
 const view = {
   todo: $("#todo"),
+  news: $("#news"),
   calendar: $("#calendar"),
   emails: $("#emails"),
 };
 
-let state = { todos: [], calendar: [], emails: [] };
+let state = { todos: [], news: [], calendar: [], emails: [] };
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 function toast(msg) {
@@ -66,6 +67,33 @@ function renderTodos() {
     el.addEventListener("click", () => toggleTodo(Number(el.dataset.id)))
   );
   setHeader();
+}
+
+function relTime(iso) {
+  const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  return hrs < 24 ? `${hrs}h ago` : `${Math.round(hrs / 24)}d ago`;
+}
+
+function renderNews() {
+  const n = state.news;
+  if (!n || !n.length) {
+    view.news.innerHTML = emptyState("📰", "No fresh headlines right now.");
+    return;
+  }
+  view.news.innerHTML =
+    `<div class="section-label">Top headlines · past 24h</div>` +
+    n
+      .map(
+        (a) => `
+      <a class="card news" href="${esc(a.url)}" target="_blank" rel="noopener">
+        <div class="news-meta"><span class="src">${esc(a.source)}</span> · ${esc(relTime(a.published))}</div>
+        <div class="news-title">${esc(a.title)}</div>
+      </a>`
+      )
+      .join("");
 }
 
 function renderCalendar() {
@@ -175,6 +203,7 @@ async function refresh() {
     if (!r.ok) throw new Error();
     const data = await r.json();
     await loadAll();
+    loadNews(true);
     toast(`${data.todos_added} new to-do${data.todos_added === 1 ? "" : "s"} · ${data.events} events`);
   } catch (e) {
     toast("Refresh failed — is the server running?");
@@ -195,6 +224,16 @@ async function loadAll() {
     // Fall back to just todos (works without Google auth)
     await loadTodos();
     toast("Loaded to-dos (calendar/email need server auth)");
+  }
+}
+
+async function loadNews(force = false) {
+  try {
+    const r = await fetch(`${API}/news${force ? "?force=true" : ""}`);
+    state.news = await r.json();
+    renderNews();
+  } catch (e) {
+    renderNews(); // shows empty state
   }
 }
 
@@ -222,6 +261,7 @@ $("#refresh").addEventListener("click", refresh);
 
 // ── Boot ─────────────────────────────────────────────────────────────────
 loadAll();
+loadNews();
 
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
