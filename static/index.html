@@ -14,24 +14,112 @@
 </head>
 <body>
   <header class="topbar">
+    <button id="menuBtn" class="iconbtn" aria-label="Menu">
+      <span class="bars"></span>
+    </button>
     <div class="greet">
       <h1 id="greeting">TomOS</h1>
       <p id="subline" class="subline">Loading…</p>
     </div>
-    <button id="refresh" class="refresh" title="Pull latest">⟳</button>
+    <button id="refresh" class="iconbtn refresh" title="Pull latest">⟳</button>
   </header>
 
-  <main id="view">
-    <section id="todo" class="panel active"></section>
-    <section id="calendar" class="panel"></section>
-    <section id="emails" class="panel"></section>
-  </main>
-
-  <nav class="tabbar">
-    <button class="tab active" data-tab="todo"><span>✓</span>To-Do</button>
-    <button class="tab" data-tab="calendar"><span>▦</span>Calendar</button>
-    <button class="tab" data-tab="emails"><span>✉</span>Emails</button>
+  <!-- Three-bar pop-down navigation -->
+  <nav id="menu" class="menu-pop">
+    <a href="#sec-todo"     data-jump><span>✓</span> To-Do</a>
+    <a href="#sec-checkin"  data-jump><span>◎</span> Daily Check-in</a>
+    <a href="#sec-health"   data-jump><span>🏋</span> Health &amp; Training</a>
+    <a href="#sec-nudges"   data-jump><span>✦</span> Proactive Nudges</a>
+    <a href="#sec-calendar" data-jump><span>▦</span> Calendar</a>
+    <a href="#sec-emails"   data-jump><span>✉</span> Emails</a>
   </nav>
+  <div id="scrim" class="scrim"></div>
+
+  <!-- One scrollable feed; each section is its own block -->
+  <main id="feed">
+
+    <section id="sec-todo" class="feed-sec">
+      <h2 class="sec-title"><span class="ico">✓</span> To-Do</h2>
+      <div id="todo"></div>
+    </section>
+
+    <section id="sec-checkin" class="feed-sec">
+      <h2 class="sec-title"><span class="ico">◎</span> Daily Check-in <em class="tag">template</em></h2>
+      <div class="card checkin">
+        <div class="checkin-head">Top 3 for today</div>
+        <div class="prio"><span class="num">1</span><span class="line"></span></div>
+        <div class="prio"><span class="num">2</span><span class="line"></span></div>
+        <div class="prio"><span class="num">3</span><span class="line"></span></div>
+      </div>
+      <div class="card checkin muted-card">
+        <div class="checkin-head">Tonight · reflection</div>
+        <p class="hint">What got done · what slipped · one adjustment for tomorrow</p>
+      </div>
+    </section>
+
+    <section id="sec-health" class="feed-sec">
+      <h2 class="sec-title"><span class="ico">🏋</span> Health &amp; Training <em class="tag">template</em></h2>
+
+      <div class="card session">
+        <div class="session-top">
+          <div>
+            <div class="kicker">Today's session</div>
+            <div class="session-name">Push — Chest / Shoulders / Triceps</div>
+          </div>
+          <div class="session-badge">Day 3</div>
+        </div>
+        <ul class="lifts">
+          <li><span>Bench press</span><b>4 × 6</b></li>
+          <li><span>Overhead press</span><b>4 × 8</b></li>
+          <li><span>Incline dumbbell</span><b>3 × 10</b></li>
+          <li><span>Triceps + laterals</span><b>3 × 12</b></li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="kicker">Protein</div>
+        <div class="protein-row">
+          <div class="protein-bar"><i style="width:42%"></i></div>
+          <div class="protein-val">84 / 200g</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="kicker">This week</div>
+        <div class="week">
+          <span class="d done">P</span><span class="d done">P</span><span class="d now">L</span>
+          <span class="d">U</span><span class="d">L</span><span class="d off">·</span><span class="d off">·</span>
+        </div>
+      </div>
+    </section>
+
+    <section id="sec-nudges" class="feed-sec">
+      <h2 class="sec-title"><span class="ico">✦</span> Proactive Nudges <em class="tag">template</em></h2>
+      <div class="card nudge warn">
+        <div class="nudge-dot"></div>
+        <div><b>Protein is behind.</b> 116g to go with ~6 hours left — front-load dinner.</div>
+      </div>
+      <div class="card nudge">
+        <div class="nudge-dot"></div>
+        <div><b>No lift logged today.</b> It's a Push day — don't break the streak.</div>
+      </div>
+      <div class="card nudge info">
+        <div class="nudge-dot"></div>
+        <div><b>Scholarships.com deadlines</b> are still un-actioned from your inbox.</div>
+      </div>
+    </section>
+
+    <section id="sec-calendar" class="feed-sec">
+      <h2 class="sec-title"><span class="ico">▦</span> Calendar</h2>
+      <div id="calendar"></div>
+    </section>
+
+    <section id="sec-emails" class="feed-sec">
+      <h2 class="sec-title"><span class="ico">✉</span> Emails</h2>
+      <div id="emails"></div>
+    </section>
+
+  </main>
 
   <div id="toast" class="toast"></div>
 

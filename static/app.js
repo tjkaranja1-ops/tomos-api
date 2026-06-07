@@ -198,15 +198,24 @@ async function loadAll() {
   }
 }
 
-// ── Tabs ─────────────────────────────────────────────────────────────────
-document.querySelectorAll(".tab").forEach((tab) =>
-  tab.addEventListener("click", () => {
-    const name = tab.dataset.tab;
-    document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t === tab));
-    document.querySelectorAll(".panel").forEach((p) =>
-      p.classList.toggle("active", p.id === name)
-    );
-  })
+// ── Pop-down menu + scroll navigation ────────────────────────────────────
+const menuBtn = $("#menuBtn");
+const menu = $("#menu");
+const scrim = $("#scrim");
+
+function setMenu(open) {
+  menu.classList.toggle("open", open);
+  scrim.classList.toggle("show", open);
+  menuBtn.classList.toggle("active", open);
+}
+
+menuBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  setMenu(!menu.classList.contains("open"));
+});
+scrim.addEventListener("click", () => setMenu(false));
+menu.querySelectorAll("a[data-jump]").forEach((a) =>
+  a.addEventListener("click", () => setMenu(false))
 );
 
 $("#refresh").addEventListener("click", refresh);
