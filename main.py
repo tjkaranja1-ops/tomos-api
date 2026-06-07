@@ -11,6 +11,7 @@ no laptop involved.
 """
 
 import os
+import re
 import json
 from pathlib import Path
 from datetime import datetime
@@ -52,7 +53,8 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="TomOS API", version="0.2.0", lifespan=lifespan)
+APP_VERSION = "0.3.0"
+app = FastAPI(title="TomOS API", version=APP_VERSION, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -63,6 +65,12 @@ app.add_middleware(
 
 
 # ── Serialization ─────────────────────────────────────────────────────────────
+
+def _norm(text: str) -> str:
+    """Loose key for de-duping reworded action items (Claude phrases each run
+    slightly differently): lowercase, alphanumerics only."""
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
 
 def _serialize_event(e: dict) -> dict:
     return {
@@ -90,18 +98,36 @@ def run_pull() -> dict:
         "VALUES (?, ?, ?, ?)",
         (today, json.dumps(flagged), json.dumps([_serialize_event(e) for e in events]), now),
     )
-    open_texts = {
-        r["text"] for r in conn.execute("SELECT text FROM todos WHERE done=0").fetchall()
+
+    # Idempotent refresh: clear today's still-open auto to-dos and re-add the
+    # latest set, so re-running /refresh (or the daily job) doesn't pile up
+    # reworded duplicates. Completed items and prior days are preserved.
+    conn.execute(
+        "DELETE FROM todos WHERE source='briefing' AND done=0 AND briefing_date=?",
+        (today,),
+    )
+    # Skip anything that's a near-duplicate of an item already done today or
+    # still open from another day (compared on normalized text).
+    skip = {
+        _norm(r["text"])
+        for r in conn.execute(
+            "SELECT text FROM todos WHERE done=1 AND briefing_date=? "
+            "UNION SELECT text FROM todos WHERE done=0",
+            (today,),
+        ).fetchall()
     }
     added = 0
     for a in actions:
-        if a not in open_texts:
-            conn.execute(
-                "INSERT INTO todos(text, source, done, created_at, briefing_date) "
-                "VALUES (?, 'briefing', 0, ?, ?)",
-                (a, now, today),
-            )
-            added += 1
+        key = _norm(a)
+        if key in skip:
+            continue
+        conn.execute(
+            "INSERT INTO todos(text, source, done, created_at, briefing_date) "
+            "VALUES (?, 'briefing', 0, ?, ?)",
+            (a, now, today),
+        )
+        skip.add(key)
+        added += 1
     conn.commit()
     conn.close()
 
@@ -127,6 +153,7 @@ def health():
     return {
         "ok": True,
         "service": "tomos-api",
+        "version": APP_VERSION,
         "next_pull": job.next_run_time.isoformat() if job and job.next_run_time else None,
     }
 
