@@ -14,8 +14,6 @@
 </head>
 <body>
   <header class="topbar">
-    <button id="backBtn" class="iconbtn back" aria-label="Back" hidden>‹</button>
-    <button id="menuBtn" class="iconbtn" aria-label="Menu"><span class="bars"></span></button>
     <div class="greet">
       <h1 id="greeting">TomOS</h1>
       <p id="subline" class="subline">Loading…</p>
@@ -23,31 +21,76 @@
     <button id="refresh" class="iconbtn refresh" title="Pull latest">⟳</button>
   </header>
 
-  <nav id="menu" class="menu-pop">
-    <a data-view="home"     href="#"><span>⌂</span> Home</a>
-    <a data-view="todo"     href="#"><span>✓</span> To-Do</a>
-    <a data-view="news"     href="#"><span>📰</span> News</a>
-    <a data-view="checkin"  href="#"><span>◎</span> Daily Check-in</a>
-    <a data-view="training" href="#"><span>🏋</span> Health &amp; Training</a>
-    <a data-view="nudges"   href="#"><span>✦</span> Proactive Nudges</a>
-    <a data-view="calendar" href="#"><span>▦</span> Calendar</a>
-    <a data-view="emails"   href="#"><span>✉</span> Emails</a>
-  </nav>
-  <div id="scrim" class="scrim"></div>
-
   <main>
-    <!-- HOME — command center dashboard (cards rendered by app.js) -->
-    <section id="view-home" class="view active">
-      <div id="dash"></div>
-    </section>
+    <!-- HOME -->
+    <section id="view-home" class="view active"><div id="dash"></div></section>
 
-    <!-- DETAIL VIEWS -->
+    <!-- TASKS -->
     <section id="view-todo" class="view"><div id="todo"></div></section>
 
+    <!-- TRAIN -->
+    <section id="view-training" class="view">
+      <!-- Resting state -->
+      <div id="train-resting">
+        <div id="next-session-card" class="card session-card"></div>
+        <div class="card split-tracker-wrap">
+          <div class="kicker">This week</div>
+          <div id="split-tracker" class="split-tracker"></div>
+        </div>
+        <div class="card protein-card">
+          <div class="protein-header">
+            <span class="kicker">Protein today</span>
+            <span id="protein-total-label" class="protein-total-label">— / 200g</span>
+          </div>
+          <div class="protein-bar"><i id="protein-bar-fill" style="width:0%"></i></div>
+          <div id="protein-log-list" class="protein-log-list"></div>
+          <div class="food-chips" id="food-chips"></div>
+          <button class="chip chip-custom" id="custom-protein-btn">+ Custom</button>
+        </div>
+        <div id="last-session-card" class="card last-session"></div>
+      </div>
+
+      <!-- Active session -->
+      <div id="train-active" hidden>
+        <div class="card session-header-card">
+          <div class="session-header-left">
+            <div class="kicker">Active session</div>
+            <div id="active-session-name" class="session-name-big"></div>
+          </div>
+          <div id="session-timer" class="session-timer">0:00</div>
+          <button class="btn-finish-top" id="finish-btn">Finish</button>
+        </div>
+        <!-- PR banner -->
+        <div id="pr-banner" class="pr-banner" hidden>
+          <span class="pr-icon">🏆</span>
+          <span id="pr-banner-text">New PR!</span>
+        </div>
+        <!-- Rest timer banner -->
+        <div id="rest-timer-bar" class="rest-timer-bar" hidden>
+          <span class="rest-label">Rest</span>
+          <span id="rest-countdown" class="rest-countdown">2:00</span>
+          <button class="rest-skip" id="rest-skip">Skip</button>
+        </div>
+        <div id="active-exercises"></div>
+        <button class="btn-add-exercise" id="add-exercise-session-btn">+ Add Exercise</button>
+        <div class="session-actions">
+          <button class="btn-abandon" id="abandon-btn">Abandon Session</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- FEED / NEWS -->
     <section id="view-news" class="view">
       <div id="news"><div class="empty"><div class="big">📰</div>Loading headlines…</div></div>
     </section>
 
+    <!-- EMAILS -->
+    <section id="view-emails" class="view"><div id="emails"></div></section>
+
+    <!-- CALENDAR -->
+    <section id="view-calendar" class="view"><div id="calendar"></div></section>
+
+    <!-- DAILY CHECK-IN -->
     <section id="view-checkin" class="view">
       <div class="card checkin">
         <div class="checkin-head">Top 3 for today</div>
@@ -61,57 +104,75 @@
       </div>
     </section>
 
-    <section id="view-training" class="view">
-      <div class="card session">
-        <div class="session-top">
-          <div>
-            <div class="kicker">Today's session</div>
-            <div class="session-name">Push — Chest / Shoulders / Triceps</div>
-          </div>
-          <div class="session-badge">Day 3</div>
-        </div>
-        <ul class="lifts">
-          <li><span>Bench press</span><b>4 × 6</b></li>
-          <li><span>Overhead press</span><b>4 × 8</b></li>
-          <li><span>Incline dumbbell</span><b>3 × 10</b></li>
-          <li><span>Triceps + laterals</span><b>3 × 12</b></li>
-        </ul>
-      </div>
-      <div class="card">
-        <div class="kicker">Protein</div>
-        <div class="protein-row">
-          <div class="protein-bar"><i style="width:42%"></i></div>
-          <div class="protein-val">84 / 200g</div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="kicker">This week</div>
-        <div class="week">
-          <span class="d done">P</span><span class="d done">P</span><span class="d now">L</span>
-          <span class="d">U</span><span class="d">L</span><span class="d off">·</span><span class="d off">·</span>
-        </div>
-      </div>
-    </section>
-
+    <!-- NUDGES -->
     <section id="view-nudges" class="view">
       <div class="card nudge warn">
         <div class="nudge-dot"></div>
-        <div><b>Protein is behind.</b> 116g to go with ~6 hours left — front-load dinner.</div>
-      </div>
-      <div class="card nudge">
-        <div class="nudge-dot"></div>
-        <div><b>No lift logged today.</b> It's a Push day — don't break the streak.</div>
+        <div><b>Protein is behind.</b> Log food in the Train tab to track progress.</div>
       </div>
       <div class="card nudge info">
         <div class="nudge-dot"></div>
-        <div><b>Scholarships.com deadlines</b> are still un-actioned from your inbox.</div>
+        <div><b>Nudges become smart</b> once your workout and protein logs have real data.</div>
       </div>
     </section>
 
-    <section id="view-calendar" class="view"><div id="calendar"></div></section>
-
-    <section id="view-emails" class="view"><div id="emails"></div></section>
+    <!-- TEMPLATE EDITOR -->
+    <section id="view-template-editor" class="view">
+      <div class="template-editor-header">
+        <button class="btn-back-editor" id="editor-back-btn">‹ Back</button>
+        <div id="editor-title" class="editor-title">Edit Template</div>
+      </div>
+      <div id="template-exercise-list" class="template-exercise-list"></div>
+      <button class="btn-add-exercise" id="add-exercise-template-btn">+ Add Exercise</button>
+    </section>
   </main>
+
+  <!-- Bottom tab bar -->
+  <nav class="tab-bar">
+    <button class="tab active" data-tab="home"><span class="ico">⌂</span><span>Home</span></button>
+    <button class="tab" data-tab="todo"><span class="ico">✓</span><span>Tasks</span></button>
+    <button class="tab" data-tab="training"><span class="ico">🏋</span><span>Train</span></button>
+    <button class="tab" data-tab="news"><span class="ico">📰</span><span>Feed</span></button>
+    <button class="tab" data-tab="more"><span class="ico">···</span><span>More</span></button>
+  </nav>
+
+  <!-- More tray -->
+  <div id="more-tray" class="more-tray" hidden>
+    <div class="more-tray-inner">
+      <div class="more-tray-handle"></div>
+      <a class="more-item" data-view="emails"><span>✉</span> Emails</a>
+      <a class="more-item" data-view="calendar"><span>▦</span> Calendar</a>
+      <a class="more-item" data-view="checkin"><span>◎</span> Daily Check-in</a>
+      <a class="more-item" data-view="nudges"><span>✦</span> Nudges</a>
+    </div>
+  </div>
+  <div id="tray-scrim" class="tray-scrim" hidden></div>
+
+  <!-- Exercise Picker modal -->
+  <div id="exercise-picker" class="ex-picker" hidden>
+    <div class="ex-picker-inner">
+      <div class="ex-picker-header">
+        <input id="ex-search" class="ex-search-input" type="text" placeholder="Search exercises…" autocomplete="off" />
+        <button class="ex-picker-close" id="ex-picker-close">✕</button>
+      </div>
+      <div class="ex-filter-chips" id="ex-filter-chips"></div>
+      <div id="ex-list" class="ex-list"></div>
+    </div>
+  </div>
+  <div id="ex-picker-scrim" class="tray-scrim" hidden></div>
+
+  <!-- Custom protein modal -->
+  <div id="protein-modal" class="modal" hidden>
+    <div class="modal-box">
+      <div class="modal-title">Log protein</div>
+      <input id="protein-food-name" class="modal-input" type="text" placeholder="Food name" />
+      <input id="protein-g-input" class="modal-input" type="number" min="0" max="300" placeholder="Protein (g)" />
+      <div class="modal-actions">
+        <button class="btn-cancel" id="protein-modal-cancel">Cancel</button>
+        <button class="btn-add" id="protein-modal-add">Add</button>
+      </div>
+    </div>
+  </div>
 
   <div id="toast" class="toast"></div>
   <script src="/static/app.js"></script>

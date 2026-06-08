@@ -1,24 +1,15 @@
-"""TomOS API — FastAPI backend for the Phase 2 app.
-
-Three sections, per the approved plan:
-  - Emails   (screened highlights, read-only)
-  - Calendar (next 7 days, read-only)
-  - To-Do    (action items, checkable, persisted in SQLite)
-
-Pull/screening logic lives in pull.py (shared with the laptop briefing). A
-built-in scheduler runs the pull daily so the app stays fresh in the cloud with
-no laptop involved.
-"""
+"""TomOS API — FastAPI backend."""
 
 import os
 import re
 import json
 import threading
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -31,8 +22,9 @@ import db
 import news
 
 STATIC_DIR = Path(__file__).parent / "static"
-# Hour (0-23) to run the automatic daily pull in the cloud.
 PULL_HOUR = int(os.environ.get("TOMOS_PULL_HOUR", "8"))
+PROTEIN_GOAL = 200
+SPLIT_ORDER = db.SPLIT_ORDER
 
 scheduler = BackgroundScheduler()
 
@@ -40,16 +32,9 @@ scheduler = BackgroundScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
-    # Daily automatic pull — keeps the app fresh without the laptop.
-    scheduler.add_job(
-        run_pull,
-        CronTrigger(hour=PULL_HOUR, minute=0),
-        id="daily_pull",
-        replace_existing=True,
-        misfire_grace_time=3600,
-    )
+    scheduler.add_job(run_pull, CronTrigger(hour=PULL_HOUR, minute=0),
+                      id="daily_pull", replace_existing=True, misfire_grace_time=3600)
     scheduler.start()
-    # Warm the news cache in the background so the first app load is instant.
     threading.Thread(target=news.get_news, daemon=True).start()
     try:
         yield
@@ -57,22 +42,14 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.9.0"
 app = FastAPI(title="TomOS API", version=APP_VERSION, lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-# ── Serialization ─────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _norm(text: str) -> str:
-    """Loose key for de-duping reworded action items (Claude phrases each run
-    slightly differently): lowercase, alphanumerics only."""
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
@@ -85,7 +62,72 @@ def _serialize_event(e: dict) -> dict:
     }
 
 
-# ── Core pull (used by /refresh AND the scheduler) ────────────────────────────
+def _prev_for_exercise(conn, exercise_id: int) -> dict | None:
+    """Most recent completed set data for this exercise (for PREVIOUS column)."""
+    row = conn.execute("""
+        SELECT ws.weight_lbs, ws.reps
+        FROM workout_sets ws
+        JOIN workouts w ON w.id = ws.workout_id
+        WHERE ws.exercise_id = ? AND w.completed_at IS NOT NULL
+          AND ws.set_type IN ('working','amrap','failure')
+        ORDER BY w.completed_at DESC, ws.set_num ASC
+        LIMIT 1
+    """, (exercise_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def _epley_1rm(weight, reps) -> float:
+    if not weight or not reps or reps <= 0:
+        return 0.0
+    return float(weight) * (1 + float(reps) / 30)
+
+
+def _build_session_exercises(conn, template_id: int, workout_id: int) -> list:
+    """
+    Create workout_exercises rows from a template and return the full exercise list
+    with previous performance data for the PREVIOUS column.
+    """
+    template_exercises = conn.execute("""
+        SELECT te.id as te_id, te.exercise_id, te.default_sets, te.default_reps,
+               te.order_idx, e.name, e.is_compound
+        FROM template_exercises te
+        JOIN exercises e ON e.id = te.exercise_id
+        WHERE te.template_id = ?
+        ORDER BY te.order_idx
+    """, (template_id,)).fetchall()
+
+    result = []
+    for idx, te in enumerate(template_exercises):
+        cur = conn.execute(
+            "INSERT INTO workout_exercises(workout_id, exercise_id, order_idx) VALUES (?,?,?)",
+            (workout_id, te["exercise_id"], idx),
+        )
+        we_id = cur.lastrowid
+        prev = _prev_for_exercise(conn, te["exercise_id"])
+        sets = []
+        for i in range(1, te["default_sets"] + 1):
+            sets.append({
+                "set_num": i,
+                "set_type": "working",
+                "prev_weight": prev["weight_lbs"] if prev else None,
+                "prev_reps": prev["reps"] if prev else te["default_reps"],
+                "weight_lbs": None,
+                "reps": None,
+                "logged": False,
+            })
+        result.append({
+            "we_id": we_id,
+            "exercise_id": te["exercise_id"],
+            "name": te["name"],
+            "is_compound": bool(te["is_compound"]),
+            "default_sets": te["default_sets"],
+            "default_reps": te["default_reps"],
+            "sets": sets,
+        })
+    return result
+
+
+# ── Briefing pull ─────────────────────────────────────────────────────────────
 
 def run_pull() -> dict:
     cal, gmail = pull.services()
@@ -98,26 +140,15 @@ def run_pull() -> dict:
 
     conn = db.get_conn()
     conn.execute(
-        "INSERT INTO briefings(date, emails_json, events_json, created_at) "
-        "VALUES (?, ?, ?, ?)",
+        "INSERT INTO briefings(date, emails_json, events_json, created_at) VALUES (?,?,?,?)",
         (today, json.dumps(flagged), json.dumps([_serialize_event(e) for e in events]), now),
     )
-
-    # Idempotent refresh: clear today's still-open auto to-dos and re-add the
-    # latest set, so re-running /refresh (or the daily job) doesn't pile up
-    # reworded duplicates. Completed items and prior days are preserved.
-    conn.execute(
-        "DELETE FROM todos WHERE source='briefing' AND done=0 AND briefing_date=?",
-        (today,),
-    )
-    # Skip anything that's a near-duplicate of an item already done today or
-    # still open from another day (compared on normalized text).
+    conn.execute("DELETE FROM todos WHERE source='briefing' AND done=0 AND briefing_date=?", (today,))
     skip = {
         _norm(r["text"])
         for r in conn.execute(
             "SELECT text FROM todos WHERE done=1 AND briefing_date=? "
-            "UNION SELECT text FROM todos WHERE done=0",
-            (today,),
+            "UNION SELECT text FROM todos WHERE done=0", (today,),
         ).fetchall()
     }
     added = 0
@@ -126,60 +157,44 @@ def run_pull() -> dict:
         if key in skip:
             continue
         conn.execute(
-            "INSERT INTO todos(text, source, done, created_at, briefing_date) "
-            "VALUES (?, 'briefing', 0, ?, ?)",
-            (a, now, today),
+            "INSERT INTO todos(text, source, done, created_at, briefing_date) VALUES (?,?,0,?,?)",
+            (a, 'briefing', now, today),
         )
         skip.add(key)
         added += 1
     conn.commit()
     conn.close()
-
-    return {
-        "events": len(events),
-        "flagged_emails": len(flagged),
-        "actions_extracted": len(actions),
-        "todos_added": added,
-    }
+    return {"events": len(events), "flagged_emails": len(flagged), "actions_extracted": len(actions), "todos_added": added}
 
 
-# ── Models ───────────────────────────────────────────────────────────────────
-
-class TodoPatch(BaseModel):
-    done: bool
-
-
-# ── Health ───────────────────────────────────────────────────────────────────
+# ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/health")
 def health():
     job = scheduler.get_job("daily_pull")
-    return {
-        "ok": True,
-        "service": "tomos-api",
-        "version": APP_VERSION,
-        "next_pull": job.next_run_time.isoformat() if job and job.next_run_time else None,
-    }
+    return {"ok": True, "service": "tomos-api", "version": APP_VERSION,
+            "next_pull": job.next_run_time.isoformat() if job and job.next_run_time else None}
 
 
-# ── PWA shell ────────────────────────────────────────────────────────────────
+# ── PWA shell ─────────────────────────────────────────────────────────────────
 
 @app.get("/")
 def root():
     return FileResponse(STATIC_DIR / "index.html")
 
-
 @app.get("/sw.js")
 def service_worker():
     return FileResponse(STATIC_DIR / "sw.js", media_type="application/javascript")
-
 
 @app.get("/manifest.json")
 def manifest():
     return FileResponse(STATIC_DIR / "manifest.json", media_type="application/manifest+json")
 
 
-# ── To-Do ────────────────────────────────────────────────────────────────────
+# ── To-Do ─────────────────────────────────────────────────────────────────────
+
+class TodoPatch(BaseModel):
+    done: bool
 
 @app.get("/todos")
 def list_todos():
@@ -188,7 +203,6 @@ def list_todos():
     conn.close()
     return [dict(r) for r in rows]
 
-
 @app.patch("/todos/{todo_id}")
 def patch_todo(todo_id: int, patch: TodoPatch):
     conn = db.get_conn()
@@ -196,17 +210,14 @@ def patch_todo(todo_id: int, patch: TodoPatch):
         conn.close()
         raise HTTPException(status_code=404, detail="todo not found")
     done_at = datetime.now().isoformat() if patch.done else None
-    conn.execute(
-        "UPDATE todos SET done=?, done_at=? WHERE id=?",
-        (1 if patch.done else 0, done_at, todo_id),
-    )
+    conn.execute("UPDATE todos SET done=?, done_at=? WHERE id=?", (1 if patch.done else 0, done_at, todo_id))
     conn.commit()
     row = conn.execute("SELECT * FROM todos WHERE id=?", (todo_id,)).fetchone()
     conn.close()
     return dict(row)
 
 
-# ── Calendar ─────────────────────────────────────────────────────────────────
+# ── Calendar ──────────────────────────────────────────────────────────────────
 
 @app.get("/calendar")
 def calendar():
@@ -214,45 +225,544 @@ def calendar():
     return [_serialize_event(e) for e in pull.get_events(cal)]
 
 
-# ── Emails ───────────────────────────────────────────────────────────────────
+# ── Emails ────────────────────────────────────────────────────────────────────
 
 @app.get("/news")
 def news_endpoint(force: bool = False):
     return news.get_news(force=force)
 
-
 @app.get("/emails")
 def emails():
     conn = db.get_conn()
-    row = conn.execute(
-        "SELECT emails_json FROM briefings ORDER BY created_at DESC LIMIT 1"
-    ).fetchone()
+    row = conn.execute("SELECT emails_json FROM briefings ORDER BY created_at DESC LIMIT 1").fetchone()
     conn.close()
     if not row or not row["emails_json"]:
         return []
     return json.loads(row["emails_json"])
 
 
-# ── Refresh (manual trigger of the same pull the scheduler runs) ──────────────
+# ── Refresh ───────────────────────────────────────────────────────────────────
 
 @app.post("/refresh")
 def refresh():
     return run_pull()
 
 
-# ── Combined view for the app home ───────────────────────────────────────────
+# ── Combined briefing ─────────────────────────────────────────────────────────
 
 @app.get("/briefing/today")
 def briefing_today():
     cal, _ = pull.services()
     events = [_serialize_event(e) for e in pull.get_events(cal)]
+    conn = db.get_conn()
+    rows = conn.execute("SELECT * FROM todos ORDER BY done ASC, created_at DESC").fetchall()
+    em_row = conn.execute("SELECT emails_json FROM briefings ORDER BY created_at DESC LIMIT 1").fetchone()
+    conn.close()
     return {
         "date": datetime.now().strftime("%Y-%m-%d"),
-        "todos": list_todos(),
-        "emails": emails(),
+        "todos": [dict(r) for r in rows],
+        "emails": json.loads(em_row["emails_json"]) if em_row and em_row["emails_json"] else [],
         "calendar": events,
     }
 
 
-# Static assets (css, js, icons). Mounted last so explicit routes win.
+# ── Exercise Library ──────────────────────────────────────────────────────────
+
+class ExerciseCreate(BaseModel):
+    name: str
+    equipment: Optional[str] = None
+    muscle_group: Optional[str] = None
+    movement_pattern: Optional[str] = None
+    is_compound: bool = False
+
+@app.get("/exercises")
+def list_exercises(
+    q: Optional[str] = Query(None),
+    group: Optional[str] = Query(None),
+    equipment: Optional[str] = Query(None),
+):
+    conn = db.get_conn()
+    sql = "SELECT * FROM exercises WHERE 1=1"
+    params: list = []
+    if q:
+        sql += " AND name LIKE ?"
+        params.append(f"%{q}%")
+    if group:
+        sql += " AND muscle_group = ?"
+        params.append(group)
+    if equipment:
+        sql += " AND equipment = ?"
+        params.append(equipment)
+    sql += " ORDER BY name"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.post("/exercises")
+def create_exercise(body: ExerciseCreate):
+    conn = db.get_conn()
+    try:
+        cur = conn.execute(
+            "INSERT INTO exercises(name, equipment, muscle_group, movement_pattern, is_compound, created_by) VALUES (?,?,?,?,?,?)",
+            (body.name, body.equipment, body.muscle_group, body.movement_pattern, 1 if body.is_compound else 0, "user"),
+        )
+        row_id = cur.lastrowid
+        conn.commit()
+        row = conn.execute("SELECT * FROM exercises WHERE id=?", (row_id,)).fetchone()
+        conn.close()
+        return dict(row)
+    except Exception:
+        conn.close()
+        raise HTTPException(status_code=409, detail="Exercise name already exists")
+
+@app.get("/exercises/{exercise_id}/history")
+def exercise_history(exercise_id: int):
+    conn = db.get_conn()
+    rows = conn.execute("""
+        SELECT ws.*, w.session_name, w.completed_at as workout_date
+        FROM workout_sets ws
+        JOIN workouts w ON w.id = ws.workout_id
+        WHERE ws.exercise_id = ? AND w.completed_at IS NOT NULL
+          AND ws.set_type IN ('working','amrap','failure')
+        ORDER BY w.completed_at DESC, ws.set_num ASC
+        LIMIT 20
+    """, (exercise_id,)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ── Workout Templates ─────────────────────────────────────────────────────────
+
+class TemplateExerciseAdd(BaseModel):
+    exercise_id: int
+    default_sets: int = 3
+    default_reps: int = 10
+
+class TemplateExercisePatch(BaseModel):
+    default_sets: Optional[int] = None
+    default_reps: Optional[int] = None
+    order_idx: Optional[int] = None
+
+@app.get("/templates")
+def list_templates():
+    conn = db.get_conn()
+    rows = conn.execute("""
+        SELECT wt.*, COUNT(te.id) as exercise_count
+        FROM workout_templates wt
+        LEFT JOIN template_exercises te ON te.template_id = wt.id
+        GROUP BY wt.id ORDER BY wt.id
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+@app.get("/templates/{template_id}")
+def get_template(template_id: int):
+    conn = db.get_conn()
+    tmpl = conn.execute("SELECT * FROM workout_templates WHERE id=?", (template_id,)).fetchone()
+    if not tmpl:
+        conn.close()
+        raise HTTPException(status_code=404, detail="template not found")
+    exercises = conn.execute("""
+        SELECT te.id as te_id, te.exercise_id, te.order_idx, te.default_sets, te.default_reps,
+               e.name, e.equipment, e.muscle_group, e.is_compound
+        FROM template_exercises te
+        JOIN exercises e ON e.id = te.exercise_id
+        WHERE te.template_id = ?
+        ORDER BY te.order_idx
+    """, (template_id,)).fetchall()
+    conn.close()
+    return {**dict(tmpl), "exercises": [dict(r) for r in exercises]}
+
+@app.post("/templates/{template_id}/exercises")
+def add_template_exercise(template_id: int, body: TemplateExerciseAdd):
+    conn = db.get_conn()
+    if not conn.execute("SELECT id FROM workout_templates WHERE id=?", (template_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="template not found")
+    if not conn.execute("SELECT id FROM exercises WHERE id=?", (body.exercise_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="exercise not found")
+    max_idx = conn.execute(
+        "SELECT COALESCE(MAX(order_idx),0)+1 FROM template_exercises WHERE template_id=?", (template_id,)
+    ).fetchone()[0]
+    cur = conn.execute(
+        "INSERT INTO template_exercises(template_id, exercise_id, order_idx, default_sets, default_reps) VALUES (?,?,?,?,?)",
+        (template_id, body.exercise_id, max_idx, body.default_sets, body.default_reps),
+    )
+    conn.execute("UPDATE workout_templates SET updated_at=? WHERE id=?", (datetime.now().isoformat(), template_id))
+    conn.commit()
+    te_id = cur.lastrowid
+    row = conn.execute("""
+        SELECT te.*, e.name, e.equipment, e.muscle_group FROM template_exercises te
+        JOIN exercises e ON e.id = te.exercise_id WHERE te.id=?
+    """, (te_id,)).fetchone()
+    conn.close()
+    return dict(row)
+
+@app.delete("/templates/{template_id}/exercises/{te_id}")
+def remove_template_exercise(template_id: int, te_id: int):
+    conn = db.get_conn()
+    if not conn.execute("SELECT id FROM template_exercises WHERE id=? AND template_id=?", (te_id, template_id)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="not found")
+    conn.execute("DELETE FROM template_exercises WHERE id=?", (te_id,))
+    conn.execute("UPDATE workout_templates SET updated_at=? WHERE id=?", (datetime.now().isoformat(), template_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@app.patch("/templates/{template_id}/exercises/{te_id}")
+def patch_template_exercise(template_id: int, te_id: int, body: TemplateExercisePatch):
+    conn = db.get_conn()
+    row = conn.execute("SELECT * FROM template_exercises WHERE id=? AND template_id=?", (te_id, template_id)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="not found")
+    sets = body.default_sets if body.default_sets is not None else row["default_sets"]
+    reps = body.default_reps if body.default_reps is not None else row["default_reps"]
+    idx = body.order_idx if body.order_idx is not None else row["order_idx"]
+    conn.execute("UPDATE template_exercises SET default_sets=?, default_reps=?, order_idx=? WHERE id=?", (sets, reps, idx, te_id))
+    conn.execute("UPDATE workout_templates SET updated_at=? WHERE id=?", (datetime.now().isoformat(), template_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "default_sets": sets, "default_reps": reps, "order_idx": idx}
+
+
+# ── Training — Session ────────────────────────────────────────────────────────
+
+class TrainingStart(BaseModel):
+    template_id: Optional[int] = None
+
+class SessionExerciseAdd(BaseModel):
+    workout_id: int
+    exercise_id: int
+
+class SetLog(BaseModel):
+    workout_exercise_id: int
+    set_num: int
+    set_type: str = "working"
+    weight_lbs: Optional[float] = None
+    reps: Optional[int] = None
+    rpe: Optional[float] = None
+
+class SetPatch(BaseModel):
+    weight_lbs: Optional[float] = None
+    reps: Optional[int] = None
+    set_type: Optional[str] = None
+
+class WorkoutComplete(BaseModel):
+    workout_id: int
+    notes: Optional[str] = None
+
+
+def _next_template(conn) -> dict | None:
+    last = conn.execute(
+        "SELECT session_name FROM workouts WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1"
+    ).fetchone()
+    if last and last["session_name"] in SPLIT_ORDER:
+        idx = SPLIT_ORDER.index(last["session_name"])
+        next_name = SPLIT_ORDER[(idx + 1) % len(SPLIT_ORDER)]
+    else:
+        next_name = SPLIT_ORDER[0]
+    tmpl = conn.execute("SELECT * FROM workout_templates WHERE name=?", (next_name,)).fetchone()
+    return dict(tmpl) if tmpl else None
+
+
+@app.get("/training/next")
+def training_next():
+    conn = db.get_conn()
+    active = conn.execute(
+        "SELECT * FROM workouts WHERE completed_at IS NULL ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    next_tmpl = _next_template(conn)
+    conn.close()
+    return {
+        "next_template": next_tmpl,
+        "active_workout": dict(active) if active else None,
+    }
+
+
+@app.post("/training/start")
+def training_start(body: TrainingStart):
+    conn = db.get_conn()
+    active = conn.execute("SELECT id FROM workouts WHERE completed_at IS NULL").fetchone()
+    if active:
+        conn.close()
+        raise HTTPException(status_code=409, detail="session already active")
+
+    if body.template_id:
+        tmpl = conn.execute("SELECT * FROM workout_templates WHERE id=?", (body.template_id,)).fetchone()
+    else:
+        tmpl_dict = _next_template(conn)
+        tmpl = conn.execute("SELECT * FROM workout_templates WHERE id=?", (tmpl_dict["id"],)).fetchone() if tmpl_dict else None
+
+    if not tmpl:
+        conn.close()
+        raise HTTPException(status_code=404, detail="no template found")
+
+    now = datetime.now().isoformat()
+    cur = conn.execute(
+        "INSERT INTO workouts(template_id, session_name, started_at) VALUES (?,?,?)",
+        (tmpl["id"], tmpl["name"], now),
+    )
+    workout_id = cur.lastrowid
+    exercises = _build_session_exercises(conn, tmpl["id"], workout_id)
+    conn.commit()
+    conn.close()
+    return {"workout_id": workout_id, "session_name": tmpl["name"], "template_id": tmpl["id"],
+            "started_at": now, "exercises": exercises}
+
+
+@app.post("/training/exercises")
+def add_session_exercise(body: SessionExerciseAdd):
+    conn = db.get_conn()
+    if not conn.execute("SELECT id FROM workouts WHERE id=? AND completed_at IS NULL", (body.workout_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="active workout not found")
+    ex = conn.execute("SELECT * FROM exercises WHERE id=?", (body.exercise_id,)).fetchone()
+    if not ex:
+        conn.close()
+        raise HTTPException(status_code=404, detail="exercise not found")
+    max_idx = conn.execute(
+        "SELECT COALESCE(MAX(order_idx),0)+1 FROM workout_exercises WHERE workout_id=?", (body.workout_id,)
+    ).fetchone()[0]
+    cur = conn.execute(
+        "INSERT INTO workout_exercises(workout_id, exercise_id, order_idx) VALUES (?,?,?)",
+        (body.workout_id, body.exercise_id, max_idx),
+    )
+    we_id = cur.lastrowid
+    conn.commit()
+    prev = _prev_for_exercise(conn, body.exercise_id)
+    conn.close()
+    return {
+        "we_id": we_id, "exercise_id": body.exercise_id, "name": ex["name"],
+        "is_compound": bool(ex["is_compound"]),
+        "prev_weight": prev["weight_lbs"] if prev else None,
+        "prev_reps": prev["reps"] if prev else None,
+        "sets": [],
+    }
+
+
+@app.delete("/training/exercises/{we_id}")
+def remove_session_exercise(we_id: int):
+    conn = db.get_conn()
+    we = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (we_id,)).fetchone()
+    if not we:
+        conn.close()
+        raise HTTPException(status_code=404, detail="not found")
+    conn.execute("DELETE FROM workout_sets WHERE workout_exercise_id=?", (we_id,))
+    conn.execute("DELETE FROM workout_exercises WHERE id=?", (we_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/training/sets")
+def log_set(body: SetLog):
+    conn = db.get_conn()
+    we = conn.execute("SELECT * FROM workout_exercises WHERE id=?", (body.workout_exercise_id,)).fetchone()
+    if not we:
+        conn.close()
+        raise HTTPException(status_code=404, detail="workout exercise not found")
+
+    now = datetime.now().isoformat()
+    is_pr = 0
+    if body.weight_lbs and body.reps and body.set_type in ("working", "amrap", "failure"):
+        new_1rm = _epley_1rm(body.weight_lbs, body.reps)
+        best = conn.execute("""
+            SELECT MAX(weight_lbs * (1 + reps / 30.0)) FROM workout_sets ws
+            JOIN workouts w ON w.id = ws.workout_id
+            WHERE ws.exercise_id = ? AND w.completed_at IS NOT NULL
+              AND ws.set_type IN ('working','amrap','failure')
+        """, (we["exercise_id"],)).fetchone()[0] or 0
+        if new_1rm > best:
+            is_pr = 1
+
+    # Upsert — replace existing set if same exercise + set_num
+    conn.execute("""
+        INSERT OR REPLACE INTO workout_sets
+          (workout_id, workout_exercise_id, exercise_id, set_num, set_type, weight_lbs, reps, rpe, logged_at, is_pr)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, (we["workout_id"], body.workout_exercise_id, we["exercise_id"],
+          body.set_num, body.set_type, body.weight_lbs, body.reps, body.rpe, now, is_pr))
+    conn.commit()
+    conn.close()
+    return {"ok": True, "is_pr": bool(is_pr)}
+
+
+@app.delete("/training/sets/{set_id}")
+def delete_set(set_id: int):
+    conn = db.get_conn()
+    if not conn.execute("SELECT id FROM workout_sets WHERE id=?", (set_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="not found")
+    conn.execute("DELETE FROM workout_sets WHERE id=?", (set_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.patch("/training/sets/{set_id}")
+def patch_set(set_id: int, body: SetPatch):
+    conn = db.get_conn()
+    row = conn.execute("SELECT * FROM workout_sets WHERE id=?", (set_id,)).fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="not found")
+    w = body.weight_lbs if body.weight_lbs is not None else row["weight_lbs"]
+    r = body.reps if body.reps is not None else row["reps"]
+    t = body.set_type if body.set_type is not None else row["set_type"]
+    conn.execute("UPDATE workout_sets SET weight_lbs=?, reps=?, set_type=? WHERE id=?", (w, r, t, set_id))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/training/complete")
+def complete_workout(body: WorkoutComplete):
+    conn = db.get_conn()
+    if not conn.execute("SELECT id FROM workouts WHERE id=?", (body.workout_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="workout not found")
+    now = datetime.now().isoformat()
+    conn.execute("UPDATE workouts SET completed_at=?, notes=? WHERE id=?", (now, body.notes, body.workout_id))
+    conn.commit()
+    next_tmpl = _next_template(conn)
+    conn.close()
+    return {"ok": True, "completed_at": now,
+            "next_session": next_tmpl["name"] if next_tmpl else SPLIT_ORDER[0]}
+
+
+@app.delete("/training/active")
+def abandon_workout():
+    conn = db.get_conn()
+    active = conn.execute("SELECT id FROM workouts WHERE completed_at IS NULL").fetchone()
+    if not active:
+        conn.close()
+        raise HTTPException(status_code=404, detail="no active session")
+    conn.execute("DELETE FROM workout_sets WHERE workout_id=?", (active["id"],))
+    conn.execute("DELETE FROM workout_exercises WHERE workout_id=?", (active["id"],))
+    conn.execute("DELETE FROM workouts WHERE id=?", (active["id"],))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.get("/training/active")
+def get_active_workout():
+    conn = db.get_conn()
+    active = conn.execute(
+        "SELECT * FROM workouts WHERE completed_at IS NULL ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    if not active:
+        conn.close()
+        return {"active_workout": None}
+
+    workout_id = active["id"]
+    wes = conn.execute("""
+        SELECT we.id as we_id, we.exercise_id, we.order_idx,
+               e.name, e.is_compound
+        FROM workout_exercises we
+        JOIN exercises e ON e.id = we.exercise_id
+        WHERE we.workout_id = ?
+        ORDER BY we.order_idx
+    """, (workout_id,)).fetchall()
+
+    exercises = []
+    for we in wes:
+        logged_sets = conn.execute(
+            "SELECT * FROM workout_sets WHERE workout_exercise_id=? ORDER BY set_num",
+            (we["we_id"],)
+        ).fetchall()
+        prev = _prev_for_exercise(conn, we["exercise_id"])
+        if logged_sets:
+            sets = [{"set_num": s["set_num"], "set_type": s["set_type"],
+                     "weight_lbs": s["weight_lbs"], "reps": s["reps"],
+                     "prev_weight": prev["weight_lbs"] if prev else None,
+                     "prev_reps": prev["reps"] if prev else None,
+                     "logged": True} for s in logged_sets]
+        else:
+            sets = [{"set_num": 1, "set_type": "working",
+                     "prev_weight": prev["weight_lbs"] if prev else None,
+                     "prev_reps": prev["reps"] if prev else 10,
+                     "weight_lbs": None, "reps": None, "logged": False}]
+        exercises.append({
+            "we_id": we["we_id"], "exercise_id": we["exercise_id"],
+            "name": we["name"], "is_compound": bool(we["is_compound"]),
+            "default_sets": 3, "default_reps": 10, "sets": sets,
+        })
+
+    conn.close()
+    return {"workout_id": workout_id, "session_name": active["session_name"],
+            "template_id": active["template_id"], "started_at": active["started_at"],
+            "exercises": exercises}
+
+
+@app.get("/training/history")
+def training_history():
+    conn = db.get_conn()
+    rows = conn.execute(
+        "SELECT * FROM workouts WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 10"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/training/week")
+def training_week():
+    today = date.today()
+    monday = today - timedelta(days=today.weekday())
+    sunday = monday + timedelta(days=6)
+    conn = db.get_conn()
+    rows = conn.execute(
+        "SELECT session_name, completed_at FROM workouts WHERE completed_at IS NOT NULL "
+        "AND DATE(completed_at) >= ? AND DATE(completed_at) <= ?",
+        (monday.isoformat(), sunday.isoformat()),
+    ).fetchall()
+    conn.close()
+    return {"week_start": monday.isoformat(), "sessions": [dict(r) for r in rows]}
+
+
+# ── Protein ───────────────────────────────────────────────────────────────────
+
+class ProteinEntry(BaseModel):
+    food_name: str
+    protein_g: float
+
+@app.get("/protein/today")
+def protein_today():
+    today = datetime.now().strftime("%Y-%m-%d")
+    conn = db.get_conn()
+    rows = conn.execute("SELECT * FROM protein_log WHERE date=? ORDER BY logged_at ASC", (today,)).fetchall()
+    conn.close()
+    total = sum(r["protein_g"] for r in rows)
+    return {"date": today, "total_g": total, "goal_g": PROTEIN_GOAL, "entries": [dict(r) for r in rows]}
+
+@app.post("/protein/log")
+def protein_log(entry: ProteinEntry):
+    today = datetime.now().strftime("%Y-%m-%d")
+    now = datetime.now().isoformat()
+    conn = db.get_conn()
+    cur = conn.execute(
+        "INSERT INTO protein_log(date, food_name, protein_g, logged_at) VALUES (?,?,?,?)",
+        (today, entry.food_name, entry.protein_g, now),
+    )
+    row_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return {"id": row_id, "date": today, "food_name": entry.food_name, "protein_g": entry.protein_g}
+
+@app.delete("/protein/log/{entry_id}")
+def protein_delete(entry_id: int):
+    conn = db.get_conn()
+    if not conn.execute("SELECT id FROM protein_log WHERE id=?", (entry_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="entry not found")
+    conn.execute("DELETE FROM protein_log WHERE id=?", (entry_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+# Static assets — mounted last so explicit routes win.
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
