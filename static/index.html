@@ -14,9 +14,8 @@
 </head>
 <body>
   <header class="topbar">
-    <button id="menuBtn" class="iconbtn" aria-label="Menu">
-      <span class="bars"></span>
-    </button>
+    <button id="backBtn" class="iconbtn back" aria-label="Back" hidden>‹</button>
+    <button id="menuBtn" class="iconbtn" aria-label="Menu"><span class="bars"></span></button>
     <div class="greet">
       <h1 id="greeting">TomOS</h1>
       <p id="subline" class="subline">Loading…</p>
@@ -24,48 +23,45 @@
     <button id="refresh" class="iconbtn refresh" title="Pull latest">⟳</button>
   </header>
 
-  <!-- Three-bar pop-down navigation -->
   <nav id="menu" class="menu-pop">
-    <a href="#sec-todo"     data-jump><span>✓</span> To-Do</a>
-    <a href="#sec-news"     data-jump><span>📰</span> News</a>
-    <a href="#sec-checkin"  data-jump><span>◎</span> Daily Check-in</a>
-    <a href="#sec-health"   data-jump><span>🏋</span> Health &amp; Training</a>
-    <a href="#sec-nudges"   data-jump><span>✦</span> Proactive Nudges</a>
-    <a href="#sec-calendar" data-jump><span>▦</span> Calendar</a>
-    <a href="#sec-emails"   data-jump><span>✉</span> Emails</a>
+    <a data-view="home"     href="#"><span>⌂</span> Home</a>
+    <a data-view="todo"     href="#"><span>✓</span> To-Do</a>
+    <a data-view="news"     href="#"><span>📰</span> News</a>
+    <a data-view="checkin"  href="#"><span>◎</span> Daily Check-in</a>
+    <a data-view="training" href="#"><span>🏋</span> Health &amp; Training</a>
+    <a data-view="nudges"   href="#"><span>✦</span> Proactive Nudges</a>
+    <a data-view="calendar" href="#"><span>▦</span> Calendar</a>
+    <a data-view="emails"   href="#"><span>✉</span> Emails</a>
   </nav>
   <div id="scrim" class="scrim"></div>
 
-  <!-- One scrollable feed; each section is its own block -->
-  <main id="feed">
-
-    <section id="sec-todo" class="feed-sec">
-      <h2 class="sec-title"><span class="ico">✓</span> To-Do</h2>
-      <div id="todo"></div>
+  <main>
+    <!-- HOME — command center dashboard (cards rendered by app.js) -->
+    <section id="view-home" class="view active">
+      <div id="dash"></div>
     </section>
 
-    <section id="sec-news" class="feed-sec">
-      <h2 class="sec-title"><span class="ico">📰</span> News</h2>
+    <!-- DETAIL VIEWS -->
+    <section id="view-todo" class="view"><div id="todo"></div></section>
+
+    <section id="view-news" class="view">
       <div id="news"><div class="empty"><div class="big">📰</div>Loading headlines…</div></div>
     </section>
 
-    <section id="sec-checkin" class="feed-sec">
-      <h2 class="sec-title"><span class="ico">◎</span> Daily Check-in <em class="tag">template</em></h2>
+    <section id="view-checkin" class="view">
       <div class="card checkin">
         <div class="checkin-head">Top 3 for today</div>
         <div class="prio"><span class="num">1</span><span class="line"></span></div>
         <div class="prio"><span class="num">2</span><span class="line"></span></div>
         <div class="prio"><span class="num">3</span><span class="line"></span></div>
       </div>
-      <div class="card checkin muted-card">
+      <div class="card checkin">
         <div class="checkin-head">Tonight · reflection</div>
         <p class="hint">What got done · what slipped · one adjustment for tomorrow</p>
       </div>
     </section>
 
-    <section id="sec-health" class="feed-sec">
-      <h2 class="sec-title"><span class="ico">🏋</span> Health &amp; Training <em class="tag">template</em></h2>
-
+    <section id="view-training" class="view">
       <div class="card session">
         <div class="session-top">
           <div>
@@ -81,7 +77,6 @@
           <li><span>Triceps + laterals</span><b>3 × 12</b></li>
         </ul>
       </div>
-
       <div class="card">
         <div class="kicker">Protein</div>
         <div class="protein-row">
@@ -89,7 +84,6 @@
           <div class="protein-val">84 / 200g</div>
         </div>
       </div>
-
       <div class="card">
         <div class="kicker">This week</div>
         <div class="week">
@@ -99,8 +93,7 @@
       </div>
     </section>
 
-    <section id="sec-nudges" class="feed-sec">
-      <h2 class="sec-title"><span class="ico">✦</span> Proactive Nudges <em class="tag">template</em></h2>
+    <section id="view-nudges" class="view">
       <div class="card nudge warn">
         <div class="nudge-dot"></div>
         <div><b>Protein is behind.</b> 116g to go with ~6 hours left — front-load dinner.</div>
@@ -115,20 +108,12 @@
       </div>
     </section>
 
-    <section id="sec-calendar" class="feed-sec">
-      <h2 class="sec-title"><span class="ico">▦</span> Calendar</h2>
-      <div id="calendar"></div>
-    </section>
+    <section id="view-calendar" class="view"><div id="calendar"></div></section>
 
-    <section id="sec-emails" class="feed-sec">
-      <h2 class="sec-title"><span class="ico">✉</span> Emails</h2>
-      <div id="emails"></div>
-    </section>
-
+    <section id="view-emails" class="view"><div id="emails"></div></section>
   </main>
 
   <div id="toast" class="toast"></div>
-
   <script src="/static/app.js"></script>
 </body>
 </html>

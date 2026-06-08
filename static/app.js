@@ -1,4 +1,4 @@
-// TomOS PWA — talks to the FastAPI backend on the same origin.
+// TomOS PWA — command-center home + full-screen drill-in detail views.
 const API = ""; // same origin
 
 const $ = (sel) => document.querySelector(sel);
@@ -10,6 +10,14 @@ const view = {
 };
 
 let state = { todos: [], news: [], calendar: [], emails: [] };
+let currentView = "home";
+
+const TITLES = {
+  home: "TomOS", todo: "To-Do", news: "News", checkin: "Daily Check-in",
+  training: "Health & Training", nudges: "Proactive Nudges",
+  calendar: "Calendar", emails: "Emails",
+};
+const TEMPLATE_VIEWS = new Set(["checkin", "training", "nudges"]);
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 function toast(msg) {
@@ -34,39 +42,11 @@ function fmtEventDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d)) return iso;
-  const dateOnly = iso.length <= 10; // all-day event
+  const dateOnly = iso.length <= 10;
   const opts = dateOnly
     ? { weekday: "short", month: "short", day: "numeric" }
     : { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
   return d.toLocaleString(undefined, opts);
-}
-
-// ── Renderers ────────────────────────────────────────────────────────────
-function renderTodos() {
-  const t = state.todos;
-  if (!t.length) {
-    view.todo.innerHTML = emptyState("✓", "No action items yet. Hit ⟳ to pull your latest.");
-    return;
-  }
-  const open = t.filter((x) => !x.done).length;
-  view.todo.innerHTML =
-    `<div class="section-label">${open} open · ${t.length - open} done</div>` +
-    t
-      .map(
-        (item) => `
-      <div class="todo ${item.done ? "done" : ""}" data-id="${item.id}">
-        <div class="box"></div>
-        <div class="text">${esc(item.text)}
-          ${item.briefing_date ? `<span class="meta">${esc(item.briefing_date)}</span>` : ""}
-        </div>
-      </div>`
-      )
-      .join("");
-
-  view.todo.querySelectorAll(".todo").forEach((el) =>
-    el.addEventListener("click", () => toggleTodo(Number(el.dataset.id)))
-  );
-  setHeader();
 }
 
 function relTime(iso) {
@@ -77,6 +57,32 @@ function relTime(iso) {
   return hrs < 24 ? `${hrs}h ago` : `${Math.round(hrs / 24)}d ago`;
 }
 
+function senderName(from) {
+  return (from || "").replace(/<.*?>/g, "").trim() || from || "Unknown";
+}
+
+// ── Detail renderers ─────────────────────────────────────────────────────
+function renderTodos() {
+  const t = state.todos;
+  if (!t.length) {
+    view.todo.innerHTML = emptyState("✓", "No action items yet. Hit ⟳ to pull your latest.");
+    return;
+  }
+  const open = t.filter((x) => !x.done).length;
+  view.todo.innerHTML =
+    `<div class="section-label">${open} open · ${t.length - open} done</div>` +
+    t.map((item) => `
+      <div class="todo ${item.done ? "done" : ""}" data-id="${item.id}">
+        <div class="box"></div>
+        <div class="text">${esc(item.text)}
+          ${item.briefing_date ? `<span class="meta">${esc(item.briefing_date)}</span>` : ""}
+        </div>
+      </div>`).join("");
+  view.todo.querySelectorAll(".todo").forEach((el) =>
+    el.addEventListener("click", () => toggleTodo(Number(el.dataset.id)))
+  );
+}
+
 function renderNews() {
   const n = state.news;
   if (!n || !n.length) {
@@ -85,15 +91,11 @@ function renderNews() {
   }
   view.news.innerHTML =
     `<div class="section-label">Top headlines · past 24h</div>` +
-    n
-      .map(
-        (a) => `
+    n.map((a) => `
       <a class="card news" href="${esc(a.url)}" target="_blank" rel="noopener">
         <div class="news-meta"><span class="src">${esc(a.source)}</span> · ${esc(relTime(a.published))}</div>
         <div class="news-title">${esc(a.title)}</div>
-      </a>`
-      )
-      .join("");
+      </a>`).join("");
 }
 
 function renderCalendar() {
@@ -104,16 +106,12 @@ function renderCalendar() {
   }
   view.calendar.innerHTML =
     `<div class="section-label">Next 7 days</div>` +
-    c
-      .map(
-        (e) => `
+    c.map((e) => `
       <div class="card event">
         <div class="when">${esc(fmtEventDate(e.start))}</div>
         <div class="what">${esc(e.summary)}</div>
         ${e.location ? `<div class="where">${esc(e.location)}</div>` : ""}
-      </div>`
-      )
-      .join("");
+      </div>`).join("");
 }
 
 function renderEmails() {
@@ -124,43 +122,89 @@ function renderEmails() {
   }
   view.emails.innerHTML =
     `<div class="section-label">Flagged by Claude</div>` +
-    m
-      .map((e) => {
-        const sender = (e.from || "").replace(/<.*?>/g, "").trim() || e.from || "Unknown";
-        return `
+    m.map((e) => `
       <div class="card email">
-        <div class="from">${esc(sender)}</div>
+        <div class="from">${esc(senderName(e.from))}</div>
         <div class="subject">${esc(e.subject)}</div>
         ${e.reason ? `<div class="reason">${esc(e.reason)}</div>` : ""}
-      </div>`;
-      })
-      .join("");
+      </div>`).join("");
+}
+
+// ── Home dashboard ───────────────────────────────────────────────────────
+function renderDashboard() {
+  const open = state.todos.filter((t) => !t.done);
+  const top = open.slice(0, 3);
+  const ev = state.calendar[0];
+  const headline = state.news[0];
+  const em = state.emails[0];
+
+  const cards = [];
+
+  cards.push(`
+    <button class="dash hero" data-view="todo">
+      <div class="dash-top"><span class="dash-label">Today</span><span class="arrow">›</span></div>
+      ${top.length
+        ? `<ul class="hero-list">${top.map((t) => `<li>○ ${esc(t.text)}</li>`).join("")}</ul>`
+        : `<div class="hero-clear">No open tasks — all clear ✓</div>`}
+      <div class="hero-next">${ev ? `▦ ${esc(ev.summary)} · ${esc(fmtEventDate(ev.start))}` : "▦ Nothing scheduled"}</div>
+    </button>`);
+
+  cards.push(`
+    <button class="dash" data-view="training">
+      <div class="dash-top"><span class="dash-label">🏋 Training</span><span class="arrow">›</span></div>
+      <div class="dash-body">Push day · <span class="hl">84 / 200g protein</span></div>
+      <div class="protein-bar mini"><i style="width:42%"></i></div>
+    </button>`);
+
+  cards.push(`
+    <button class="dash" data-view="news">
+      <div class="dash-top"><span class="dash-label">📰 News</span><span class="badge">${state.news.length || "…"}</span></div>
+      <div class="dash-body">${headline ? esc(headline.title) : "Loading headlines…"}</div>
+    </button>`);
+
+  cards.push(`
+    <button class="dash" data-view="nudges">
+      <div class="dash-top"><span class="dash-label">⚡ Nudges</span><span class="badge warn">2</span></div>
+      <div class="dash-body">Protein behind · no lift logged yet</div>
+    </button>`);
+
+  cards.push(`
+    <button class="dash" data-view="emails">
+      <div class="dash-top"><span class="dash-label">✉ Emails</span><span class="badge">${state.emails.length || 0}</span></div>
+      <div class="dash-body">${em ? esc(senderName(em.from)) + " · " + esc(em.subject) : "Nothing flagged"}</div>
+    </button>`);
+
+  cards.push(`
+    <button class="dash" data-view="checkin">
+      <div class="dash-top"><span class="dash-label">◎ Daily Check-in</span><span class="arrow">›</span></div>
+      <div class="dash-body">Set today's top 3 · evening reflection</div>
+    </button>`);
+
+  $("#dash").innerHTML = cards.join("");
+  $("#dash").querySelectorAll(".dash").forEach((el) =>
+    el.addEventListener("click", () => showView(el.dataset.view))
+  );
 }
 
 function setHeader() {
   const now = new Date();
   const h = now.getHours();
   const part = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
-  const greetEl = document.getElementById("greeting");
-  if (greetEl) greetEl.textContent = `${part}, Tom`;
-
-  const date = now.toLocaleDateString(undefined, {
-    weekday: "long", month: "long", day: "numeric",
-  });
-  const open = state.todos.filter((t) => !t.done).length;
-  const events = state.calendar.length;
-  const bits = [date];
-  bits.push(open ? `${open} open task${open === 1 ? "" : "s"}` : "all clear ✓");
-  if (events) bits.push(`${events} event${events === 1 ? "" : "s"}`);
-  const sub = document.getElementById("subline");
-  if (sub) sub.textContent = bits.join("  ·  ");
+  $("#greeting").textContent = `${part}, Tom`;
+  const date = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const openCount = state.todos.filter((t) => !t.done).length;
+  const bits = [date, openCount ? `${openCount} open task${openCount === 1 ? "" : "s"}` : "all clear ✓"];
+  if (state.calendar.length) bits.push(`${state.calendar.length} event${state.calendar.length === 1 ? "" : "s"}`);
+  $("#subline").textContent = bits.join("  ·  ");
 }
 
 function renderAll() {
   renderTodos();
+  renderNews();
   renderCalendar();
   renderEmails();
-  setHeader();
+  renderDashboard();
+  if (currentView === "home") setHeader();
 }
 
 // ── Data ─────────────────────────────────────────────────────────────────
@@ -169,6 +213,7 @@ async function loadTodos() {
     const r = await fetch(`${API}/todos`);
     state.todos = await r.json();
     renderTodos();
+    renderDashboard();
   } catch (e) {
     toast("Can't reach server");
   }
@@ -178,8 +223,10 @@ async function toggleTodo(id) {
   const item = state.todos.find((x) => x.id === id);
   if (!item) return;
   const next = !item.done;
-  item.done = next; // optimistic
+  item.done = next;
   renderTodos();
+  renderDashboard();
+  if (currentView === "home") setHeader();
   try {
     const r = await fetch(`${API}/todos/${id}`, {
       method: "PATCH",
@@ -188,8 +235,9 @@ async function toggleTodo(id) {
     });
     if (!r.ok) throw new Error();
   } catch (e) {
-    item.done = !next; // revert
+    item.done = !next;
     renderTodos();
+    renderDashboard();
     toast("Couldn't save — try again");
   }
 }
@@ -221,7 +269,6 @@ async function loadAll() {
     state.emails = data.emails || [];
     renderAll();
   } catch (e) {
-    // Fall back to just todos (works without Google auth)
     await loadTodos();
     toast("Loaded to-dos (calendar/email need server auth)");
   }
@@ -232,12 +279,31 @@ async function loadNews(force = false) {
     const r = await fetch(`${API}/news${force ? "?force=true" : ""}`);
     state.news = await r.json();
     renderNews();
+    renderDashboard();
   } catch (e) {
-    renderNews(); // shows empty state
+    renderNews();
   }
 }
 
-// ── Pop-down menu + scroll navigation ────────────────────────────────────
+// ── View router ──────────────────────────────────────────────────────────
+function showView(name) {
+  currentView = name;
+  document.querySelectorAll(".view").forEach((v) =>
+    v.classList.toggle("active", v.id === `view-${name}`)
+  );
+  const onHome = name === "home";
+  $("#backBtn").hidden = onHome;
+  if (onHome) {
+    setHeader();
+  } else {
+    $("#greeting").textContent = TITLES[name] || "TomOS";
+    $("#subline").textContent = TEMPLATE_VIEWS.has(name) ? "Template — not live data yet" : "";
+  }
+  setMenu(false);
+  window.scrollTo({ top: 0 });
+}
+
+// ── Pop-down menu + back + refresh ───────────────────────────────────────
 const menuBtn = $("#menuBtn");
 const menu = $("#menu");
 const scrim = $("#scrim");
@@ -253,13 +319,17 @@ menuBtn.addEventListener("click", (e) => {
   setMenu(!menu.classList.contains("open"));
 });
 scrim.addEventListener("click", () => setMenu(false));
-menu.querySelectorAll("a[data-jump]").forEach((a) =>
-  a.addEventListener("click", () => setMenu(false))
+menu.querySelectorAll("a[data-view]").forEach((a) =>
+  a.addEventListener("click", (e) => {
+    e.preventDefault();
+    showView(a.dataset.view);
+  })
 );
-
+$("#backBtn").addEventListener("click", () => showView("home"));
 $("#refresh").addEventListener("click", refresh);
 
 // ── Boot ─────────────────────────────────────────────────────────────────
+showView("home");
 loadAll();
 loadNews();
 
