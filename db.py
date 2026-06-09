@@ -225,6 +225,15 @@ def init_db():
         );
     """)
     conn.commit()
+    # Migrate columns added after initial deploy
+    _alter_add(conn, "workouts", "template_id", "INTEGER REFERENCES workout_templates(id)")
+    _alter_add(conn, "workouts", "notes", "TEXT")
+    _alter_add(conn, "workout_sets", "workout_exercise_id", "INTEGER REFERENCES workout_exercises(id)")
+    _alter_add(conn, "workout_sets", "exercise_id", "INTEGER REFERENCES exercises(id)")
+    _alter_add(conn, "workout_sets", "set_type", "TEXT NOT NULL DEFAULT 'working'")
+    _alter_add(conn, "workout_sets", "rpe", "REAL")
+    _alter_add(conn, "workout_sets", "is_pr", "INTEGER DEFAULT 0")
+    conn.commit()
     seed_db(conn)
     conn.close()
 
