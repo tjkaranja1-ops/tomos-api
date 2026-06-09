@@ -701,11 +701,91 @@ def get_active_workout():
 @app.get("/training/history")
 def training_history():
     conn = db.get_conn()
-    rows = conn.execute(
-        "SELECT * FROM workouts WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 10"
-    ).fetchall()
+    rows = conn.execute("""
+        SELECT w.*,
+               COUNT(ws.id) as total_sets,
+               COALESCE(SUM(ws.weight_lbs * ws.reps), 0) as total_volume
+        FROM workouts w
+        LEFT JOIN workout_sets ws ON ws.workout_id = w.id
+            AND ws.set_type IN ('working','amrap','failure')
+            AND ws.weight_lbs IS NOT NULL AND ws.reps IS NOT NULL
+        WHERE w.completed_at IS NOT NULL
+        GROUP BY w.id
+        ORDER BY w.completed_at DESC
+        LIMIT 20
+    """).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+@app.get("/training/history/{workout_id}")
+def training_history_detail(workout_id: int):
+    conn = db.get_conn()
+    workout = conn.execute(
+        "SELECT * FROM workouts WHERE id=? AND completed_at IS NOT NULL", (workout_id,)
+    ).fetchone()
+    if not workout:
+        conn.close()
+        raise HTTPException(status_code=404, detail="workout not found")
+
+    # Get exercises via workout_exercises (v0.9.0+ sessions)
+    wes = conn.execute("""
+        SELECT we.id as we_id, we.exercise_id, we.order_idx, e.name, e.muscle_group
+        FROM workout_exercises we
+        JOIN exercises e ON e.id = we.exercise_id
+        WHERE we.workout_id = ?
+        ORDER BY we.order_idx
+    """, (workout_id,)).fetchall()
+
+    exercises = []
+    total_volume = 0
+    total_sets = 0
+
+    if wes:
+        for we in wes:
+            sets = conn.execute(
+                "SELECT * FROM workout_sets WHERE workout_exercise_id=? ORDER BY set_num",
+                (we["we_id"],)
+            ).fetchall()
+            sets_data = [dict(s) for s in sets]
+            vol = sum((s["weight_lbs"] or 0) * (s["reps"] or 0) for s in sets_data
+                      if s["set_type"] in ("working", "amrap", "failure"))
+            total_volume += vol
+            total_sets += len(sets_data)
+            exercises.append({"name": we["name"], "muscle_group": we["muscle_group"],
+                               "sets": sets_data, "volume": round(vol)})
+    else:
+        # Legacy session — sets stored without workout_exercise_id, grouped by exercise name
+        sets = conn.execute(
+            "SELECT * FROM workout_sets WHERE workout_id=? ORDER BY exercise, set_num",
+            (workout_id,)
+        ).fetchall()
+        grouped = {}
+        for s in sets:
+            key = s["exercise"] or "Unknown"
+            grouped.setdefault(key, []).append(dict(s))
+        for name, ex_sets in grouped.items():
+            vol = sum((s["weight_lbs"] or 0) * (s["reps"] or 0) for s in ex_sets
+                      if s.get("set_type", "working") in ("working", "amrap", "failure"))
+            total_volume += vol
+            total_sets += len(ex_sets)
+            exercises.append({"name": name, "muscle_group": None,
+                               "sets": ex_sets, "volume": round(vol)})
+
+    # Duration in minutes
+    duration_mins = None
+    if workout["started_at"] and workout["completed_at"]:
+        try:
+            start = datetime.fromisoformat(workout["started_at"])
+            end = datetime.fromisoformat(workout["completed_at"])
+            duration_mins = round((end - start).total_seconds() / 60)
+        except Exception:
+            pass
+
+    conn.close()
+    return {**dict(workout), "exercises": exercises,
+            "total_volume": round(total_volume), "total_sets": total_sets,
+            "duration_mins": duration_mins}
 
 
 @app.get("/training/week")

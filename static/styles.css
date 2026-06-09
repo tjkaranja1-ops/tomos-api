@@ -430,6 +430,73 @@ a.card.news:active { background: var(--surface-2); }
 /* ── RPE input ── */
 .rpe-input { width: 48px !important; color: var(--muted); }
 
+/* ── Workout History List ── */
+.history-section { margin-top: 10px; }
+.history-header { display: flex; justify-content: space-between; align-items: center; padding: 0 4px 8px; }
+.workout-history-list { display: flex; flex-direction: column; gap: 8px; }
+.history-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 13px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer;
+  transition: border-color .12s;
+}
+.history-card:active { border-color: var(--accent); }
+.history-pill {
+  flex: 0 0 42px; height: 42px; border-radius: 10px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; color: var(--accent); letter-spacing: .02em;
+}
+.history-main { flex: 1; min-width: 0; }
+.history-name { font-size: 15px; font-weight: 700; }
+.history-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.history-vol { font-size: 13px; font-weight: 700; color: var(--text); text-align: right; white-space: nowrap; }
+.history-vol-unit { font-size: 11px; font-weight: 400; color: var(--muted); }
+.history-empty { color: var(--muted); font-size: 14px; padding: 8px 4px; }
+
+/* ── Workout Detail Modal ── */
+.workout-detail-box {
+  max-height: 88vh; overflow-y: auto; border-radius: 20px 20px 0 0;
+  padding: 0 0 calc(var(--safe-bottom) + 16px);
+}
+.wd-header {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 20px 20px 14px; border-bottom: 1px solid var(--border); position: sticky; top: 0;
+  background: var(--surface); z-index: 2;
+}
+.wd-session-name { font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+.wd-date { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.wd-close {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 50%;
+  width: 30px; height: 30px; color: var(--muted); font-size: 14px; cursor: pointer;
+  display: grid; place-items: center; flex-shrink: 0;
+}
+.wd-stats {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border);
+}
+.wd-stat {
+  flex: 1; padding: 12px 16px; text-align: center; border-right: 1px solid var(--border);
+}
+.wd-stat:last-child { border-right: none; }
+.wd-stat-val { font-size: 18px; font-weight: 800; color: var(--accent); }
+.wd-stat-label { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
+.wd-exercises { padding: 12px 16px; display: flex; flex-direction: column; gap: 16px; }
+.wd-exercise { }
+.wd-ex-name { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.wd-ex-muscle { font-size: 11px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 8px; }
+.wd-set-row {
+  display: grid; grid-template-columns: 32px 1fr 1fr 1fr; gap: 6px;
+  align-items: center; padding: 5px 0; border-top: 1px solid var(--border); font-size: 13px;
+}
+.wd-set-row:first-child { border-top: none; }
+.wd-set-num { color: var(--muted); font-weight: 700; font-size: 12px; }
+.wd-set-val { text-align: center; }
+.wd-set-val.pr { color: var(--amber); font-weight: 700; }
+.wd-set-header {
+  display: grid; grid-template-columns: 32px 1fr 1fr 1fr; gap: 6px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); padding-bottom: 4px;
+}
+
 /* ── Toast ── */
 .toast {
   position: fixed; bottom: calc(var(--tab-h) + var(--safe-bottom) + 12px); left: 50%;

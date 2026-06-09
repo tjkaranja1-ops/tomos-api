@@ -375,7 +375,7 @@ function renderTraining() {
     });
 
   loadTrainingWeek();
-  loadLastSession();
+  loadWorkoutHistory();
 }
 
 async function loadTrainingWeek() {
@@ -392,15 +392,83 @@ async function loadTrainingWeek() {
   } catch { /* silent */ }
 }
 
-async function loadLastSession() {
+async function loadWorkoutHistory() {
   try {
     const r = await fetch(`${API}/training/history`);
     const data = await r.json();
-    if (!data.length) { $("#last-session-card").innerHTML = ""; return; }
-    const last = data[0];
-    $("#last-session-card").innerHTML = `<strong>${esc(last.session_name)}</strong> · ${relTime(last.completed_at)}`;
+    const el = $("#workout-history-list");
+    if (!data.length) {
+      el.innerHTML = `<div class="history-empty">No sessions logged yet — start your first workout above.</div>`;
+      return;
+    }
+    el.innerHTML = data.map((w) => {
+      const d = new Date(w.completed_at);
+      const dateStr = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      const vol = w.total_volume >= 1000
+        ? `${(w.total_volume / 1000).toFixed(1)}k` : String(Math.round(w.total_volume || 0));
+      const dur = w.duration_mins ? `${w.duration_mins}m` : "";
+      const meta = [dateStr, dur, w.total_sets ? `${w.total_sets} sets` : ""].filter(Boolean).join(" · ");
+      return `<div class="history-card" data-id="${w.id}">
+        <div class="history-pill">${esc(w.session_name.slice(0, 3).toUpperCase())}</div>
+        <div class="history-main">
+          <div class="history-name">${esc(w.session_name)}</div>
+          <div class="history-meta">${meta}</div>
+        </div>
+        ${w.total_volume ? `<div class="history-vol">${vol}<br><span class="history-vol-unit">lbs</span></div>` : ""}
+      </div>`;
+    }).join("");
+    el.querySelectorAll(".history-card").forEach((card) =>
+      card.addEventListener("click", () => openWorkoutDetail(Number(card.dataset.id)))
+    );
   } catch { /* silent */ }
 }
+
+async function openWorkoutDetail(workoutId) {
+  try {
+    const r = await fetch(`${API}/training/history/${workoutId}`);
+    if (!r.ok) throw new Error();
+    const w = await r.json();
+
+    const d = new Date(w.completed_at);
+    const dateStr = d.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+    const timeStr = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
+    $("#wd-session-name").textContent = w.session_name;
+    $("#wd-date").textContent = `${dateStr} · ${timeStr}`;
+
+    const dur = w.duration_mins != null ? `${w.duration_mins}m` : "—";
+    const vol = w.total_volume ? `${(w.total_volume / 1000).toFixed(1)}k lbs` : "—";
+    $("#wd-stats").innerHTML = `
+      <div class="wd-stat"><div class="wd-stat-val">${dur}</div><div class="wd-stat-label">Duration</div></div>
+      <div class="wd-stat"><div class="wd-stat-val">${w.total_sets || 0}</div><div class="wd-stat-label">Sets</div></div>
+      <div class="wd-stat"><div class="wd-stat-val">${vol}</div><div class="wd-stat-label">Volume</div></div>`;
+
+    $("#wd-exercises").innerHTML = (w.exercises || []).map((ex) => {
+      const setsHtml = ex.sets.map((s) => {
+        const tag = s.set_type === "working" ? s.set_num : SET_TYPE_LABEL[s.set_type] ?? s.set_num;
+        const weight = s.weight_lbs != null ? `${s.weight_lbs} lbs` : "—";
+        const reps = s.reps != null ? `${s.reps}` : "—";
+        const rpe = s.rpe != null ? `${s.rpe}` : "—";
+        return `<div class="wd-set-row">
+          <div class="wd-set-num">${tag}</div>
+          <div class="wd-set-val ${s.is_pr ? "pr" : ""}">${weight}${s.is_pr ? " 🏆" : ""}</div>
+          <div class="wd-set-val">${reps} reps</div>
+          <div class="wd-set-val">${rpe !== "—" ? `RPE ${rpe}` : ""}</div>
+        </div>`;
+      }).join("");
+      return `<div class="wd-exercise">
+        <div class="wd-ex-name">${esc(ex.name)}</div>
+        ${ex.muscle_group ? `<div class="wd-ex-muscle">${esc(ex.muscle_group)}</div>` : ""}
+        <div class="wd-set-header"><span></span><span>Weight</span><span>Reps</span><span>RPE</span></div>
+        ${setsHtml}
+      </div>`;
+    }).join("");
+
+    $("#workout-detail-modal").hidden = false;
+  } catch { toast("Couldn't load workout details"); }
+}
+
+$("#wd-close").addEventListener("click", () => { $("#workout-detail-modal").hidden = true; });
 
 // ── Training: start session ───────────────────────────────────────────────────
 async function startSession() {

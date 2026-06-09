@@ -47,7 +47,12 @@
           <div class="food-chips" id="food-chips"></div>
           <button class="chip chip-custom" id="custom-protein-btn">+ Custom</button>
         </div>
-        <div id="last-session-card" class="card last-session"></div>
+        <div class="history-section">
+          <div class="history-header">
+            <span class="kicker">Past workouts</span>
+          </div>
+          <div id="workout-history-list" class="workout-history-list"></div>
+        </div>
       </div>
 
       <!-- Active session -->
@@ -171,6 +176,21 @@
         <button class="btn-cancel" id="protein-modal-cancel">Cancel</button>
         <button class="btn-add" id="protein-modal-add">Add</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Workout detail modal -->
+  <div id="workout-detail-modal" class="modal" hidden>
+    <div class="modal-box workout-detail-box">
+      <div class="wd-header">
+        <div>
+          <div id="wd-session-name" class="wd-session-name"></div>
+          <div id="wd-date" class="wd-date"></div>
+        </div>
+        <button class="wd-close" id="wd-close">✕</button>
+      </div>
+      <div id="wd-stats" class="wd-stats"></div>
+      <div id="wd-exercises" class="wd-exercises"></div>
     </div>
   </div>
 
