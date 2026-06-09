@@ -190,16 +190,46 @@ a.card.news:active { background: var(--surface-2); }
 .exercise-preview li { font-size: 14px; color: var(--muted); padding: 3px 0; }
 .exercise-preview li span { color: var(--text); font-weight: 600; margin-right: 6px; }
 
-.split-tracker-wrap { }
-.split-tracker { display: flex; gap: 8px; margin-top: 4px; }
-.split-dot { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.split-dot .circle {
-  width: 100%; aspect-ratio: 1; border-radius: 50%; border: 2px solid var(--border);
-  background: var(--surface-2); display: grid; place-items: center;
-  font-size: 11px; font-weight: 800; color: var(--muted); transition: all .2s;
+/* ── Week calendar card ── */
+.week-card { padding: 14px 14px 12px; }
+.week-nav {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
 }
-.split-dot.done .circle { background: rgba(52,211,153,.18); border-color: var(--green); color: var(--green); }
-.split-dot .dot-label { font-size: 10px; color: var(--muted); font-weight: 600; }
+.week-label { font-size: 14px; font-weight: 700; color: var(--text); }
+.week-arrow {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 18px; width: 32px; height: 32px;
+  display: grid; place-items: center; cursor: pointer; line-height: 1;
+}
+.week-arrow:active { border-color: var(--accent); color: var(--accent); }
+.week-arrow:disabled { opacity: .3; pointer-events: none; }
+.week-days {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-bottom: 12px;
+}
+.day-slot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.day-name {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted);
+}
+.day-name.today { color: var(--accent); }
+.day-circle {
+  width: 36px; height: 36px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 11px; font-weight: 800; letter-spacing: -.01em;
+  border: 2px solid var(--border); background: var(--surface-2);
+  color: var(--muted); cursor: default;
+}
+button.day-circle {
+  cursor: pointer; transition: transform .12s, border-color .12s;
+  background: rgba(79,140,255,.15); border-color: var(--accent); color: var(--accent);
+}
+button.day-circle:active { transform: scale(.9); }
+.day-session-label {
+  font-size: 10px; color: var(--muted); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 38px; text-align: center;
+}
+.day-session-label.done { color: var(--accent); }
+.week-summary { font-size: 12px; color: var(--muted); text-align: center; border-top: 1px solid var(--border); padding-top: 10px; }
 
 .protein-card { }
 .protein-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
@@ -430,28 +460,8 @@ a.card.news:active { background: var(--surface-2); }
 /* ── RPE input ── */
 .rpe-input { width: 48px !important; color: var(--muted); }
 
-/* ── Workout History List ── */
-.history-section { margin-top: 10px; }
-.history-header { display: flex; justify-content: space-between; align-items: center; padding: 0 4px 8px; }
-.workout-history-list { display: flex; flex-direction: column; gap: 8px; }
-.history-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
-  padding: 13px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer;
-  transition: border-color .12s;
-}
-.history-card:active { border-color: var(--accent); }
-.history-pill {
-  flex: 0 0 42px; height: 42px; border-radius: 10px;
-  background: var(--surface-2); border: 1px solid var(--border);
-  display: grid; place-items: center;
-  font-size: 11px; font-weight: 800; color: var(--accent); letter-spacing: .02em;
-}
-.history-main { flex: 1; min-width: 0; }
-.history-name { font-size: 15px; font-weight: 700; }
-.history-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.history-vol { font-size: 13px; font-weight: 700; color: var(--text); text-align: right; white-space: nowrap; }
-.history-vol-unit { font-size: 11px; font-weight: 400; color: var(--muted); }
-.history-empty { color: var(--muted); font-size: 14px; padding: 8px 4px; }
+/* ── Week empty state ── */
+.week-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 8px 0 4px; }
 
 /* ── Workout Detail Modal ── */
 .workout-detail-box {

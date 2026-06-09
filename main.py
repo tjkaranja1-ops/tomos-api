@@ -789,18 +789,27 @@ def training_history_detail(workout_id: int):
 
 
 @app.get("/training/week")
-def training_week():
+def training_week(offset: int = Query(0)):
     today = date.today()
-    monday = today - timedelta(days=today.weekday())
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=offset)
     sunday = monday + timedelta(days=6)
     conn = db.get_conn()
-    rows = conn.execute(
-        "SELECT session_name, completed_at FROM workouts WHERE completed_at IS NOT NULL "
-        "AND DATE(completed_at) >= ? AND DATE(completed_at) <= ?",
-        (monday.isoformat(), sunday.isoformat()),
-    ).fetchall()
+    rows = conn.execute("""
+        SELECT w.id, w.session_name, w.completed_at, w.started_at,
+               COUNT(ws.id) as total_sets,
+               COALESCE(SUM(ws.weight_lbs * ws.reps), 0) as total_volume
+        FROM workouts w
+        LEFT JOIN workout_sets ws ON ws.workout_id = w.id
+            AND ws.set_type IN ('working','amrap','failure')
+            AND ws.weight_lbs IS NOT NULL AND ws.reps IS NOT NULL
+        WHERE w.completed_at IS NOT NULL
+          AND DATE(w.completed_at) >= ? AND DATE(w.completed_at) <= ?
+        GROUP BY w.id
+        ORDER BY w.completed_at ASC
+    """, (monday.isoformat(), sunday.isoformat())).fetchall()
     conn.close()
-    return {"week_start": monday.isoformat(), "sessions": [dict(r) for r in rows]}
+    return {"week_start": monday.isoformat(), "week_end": sunday.isoformat(),
+            "sessions": [dict(r) for r in rows]}
 
 
 # ── Protein ───────────────────────────────────────────────────────────────────

@@ -33,10 +33,17 @@
       <!-- Resting state -->
       <div id="train-resting">
         <div id="next-session-card" class="card session-card"></div>
-        <div class="card split-tracker-wrap">
-          <div class="kicker">This week</div>
-          <div id="split-tracker" class="split-tracker"></div>
+        <!-- Week calendar card -->
+        <div class="card week-card">
+          <div class="week-nav">
+            <button class="week-arrow" id="week-prev">‹</button>
+            <div id="week-label" class="week-label"></div>
+            <button class="week-arrow" id="week-next">›</button>
+          </div>
+          <div id="week-days" class="week-days"></div>
+          <div id="week-summary" class="week-summary"></div>
         </div>
+
         <div class="card protein-card">
           <div class="protein-header">
             <span class="kicker">Protein today</span>
@@ -46,12 +53,6 @@
           <div id="protein-log-list" class="protein-log-list"></div>
           <div class="food-chips" id="food-chips"></div>
           <button class="chip chip-custom" id="custom-protein-btn">+ Custom</button>
-        </div>
-        <div class="history-section">
-          <div class="history-header">
-            <span class="kicker">Past workouts</span>
-          </div>
-          <div id="workout-history-list" class="workout-history-list"></div>
         </div>
       </div>
 

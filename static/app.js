@@ -374,54 +374,88 @@ function renderTraining() {
       $("#start-session-btn")?.addEventListener("click", startSession);
     });
 
-  loadTrainingWeek();
-  loadWorkoutHistory();
+  loadWeekView(0);
 }
 
-async function loadTrainingWeek() {
+// ── Week calendar ─────────────────────────────────────────────────────────────
+let weekOffset = 0;
+const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+async function loadWeekView(offset) {
+  weekOffset = offset;
+  $("#week-next").disabled = offset >= 0;
   try {
-    const r = await fetch(`${API}/training/week`);
+    const r = await fetch(`${API}/training/week?offset=${offset}`);
     const data = await r.json();
-    const done = new Set(data.sessions.map((s) => s.session_name));
-    const SPLIT = ["Push", "Pull", "Legs", "Upper", "Lower"];
-    $("#split-tracker").innerHTML = SPLIT.map((s) => `
-      <div class="split-dot ${done.has(s) ? "done" : ""}">
-        <div class="circle">${s[0]}</div>
-        <div class="dot-label">${s}</div>
-      </div>`).join("");
+    renderWeekView(data);
   } catch { /* silent */ }
 }
 
-async function loadWorkoutHistory() {
-  try {
-    const r = await fetch(`${API}/training/history`);
-    const data = await r.json();
-    const el = $("#workout-history-list");
-    if (!data.length) {
-      el.innerHTML = `<div class="history-empty">No sessions logged yet — start your first workout above.</div>`;
-      return;
-    }
-    el.innerHTML = data.map((w) => {
-      const d = new Date(w.completed_at);
-      const dateStr = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-      const vol = w.total_volume >= 1000
-        ? `${(w.total_volume / 1000).toFixed(1)}k` : String(Math.round(w.total_volume || 0));
-      const dur = w.duration_mins ? `${w.duration_mins}m` : "";
-      const meta = [dateStr, dur, w.total_sets ? `${w.total_sets} sets` : ""].filter(Boolean).join(" · ");
-      return `<div class="history-card" data-id="${w.id}">
-        <div class="history-pill">${esc(w.session_name.slice(0, 3).toUpperCase())}</div>
-        <div class="history-main">
-          <div class="history-name">${esc(w.session_name)}</div>
-          <div class="history-meta">${meta}</div>
-        </div>
-        ${w.total_volume ? `<div class="history-vol">${vol}<br><span class="history-vol-unit">lbs</span></div>` : ""}
+function renderWeekView(data) {
+  const sessions = data.sessions || [];
+  const weekStart = new Date(data.week_start + "T12:00:00");
+  const weekEnd   = new Date(data.week_end   + "T12:00:00");
+
+  // Week label
+  const fmt = (d, opts) => d.toLocaleDateString(undefined, opts);
+  const sameMonth = weekStart.getMonth() === weekEnd.getMonth();
+  const label = sameMonth
+    ? `${fmt(weekStart, { month: "short", day: "numeric" })} – ${fmt(weekEnd, { day: "numeric" })}`
+    : `${fmt(weekStart, { month: "short", day: "numeric" })} – ${fmt(weekEnd, { month: "short", day: "numeric" })}`;
+  $("#week-label").textContent = label;
+
+  // Map date string → session
+  const today = new Date().toLocaleDateString("en-CA");
+  const dayMap = {};
+  sessions.forEach((s) => {
+    const key = new Date(s.completed_at).toLocaleDateString("en-CA");
+    dayMap[key] = s;
+  });
+
+  // Build 7 day slots
+  const slots = DAY_NAMES.map((name, i) => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + i);
+    const key = d.toLocaleDateString("en-CA");
+    return { name, key, session: dayMap[key] || null, isToday: key === today };
+  });
+
+  $("#week-days").innerHTML = slots.map(({ name, session, isToday }) => {
+    if (session) {
+      const abbr = session.session_name.slice(0, 2);
+      return `<div class="day-slot">
+        <div class="day-name${isToday ? " today" : ""}">${name}</div>
+        <button class="day-circle" data-id="${session.id}" title="${esc(session.session_name)}">${esc(abbr)}</button>
+        <div class="day-session-label done">${esc(session.session_name)}</div>
       </div>`;
-    }).join("");
-    el.querySelectorAll(".history-card").forEach((card) =>
-      card.addEventListener("click", () => openWorkoutDetail(Number(card.dataset.id)))
-    );
-  } catch { /* silent */ }
+    }
+    return `<div class="day-slot">
+      <div class="day-name${isToday ? " today" : ""}">${name}</div>
+      <div class="day-circle"></div>
+      <div class="day-session-label">—</div>
+    </div>`;
+  }).join("");
+
+  // Bind taps
+  $("#week-days").querySelectorAll("button.day-circle").forEach((btn) =>
+    btn.addEventListener("click", () => openWorkoutDetail(Number(btn.dataset.id)))
+  );
+
+  // Summary line
+  if (!sessions.length) {
+    $("#week-summary").innerHTML = `<span class="week-empty">No sessions this week</span>`;
+  } else {
+    const totalSets = sessions.reduce((a, s) => a + (s.total_sets || 0), 0);
+    const totalVol  = sessions.reduce((a, s) => a + (s.total_volume || 0), 0);
+    const parts = [`${sessions.length} session${sessions.length !== 1 ? "s" : ""}`];
+    if (totalSets)  parts.push(`${totalSets} sets`);
+    if (totalVol)   parts.push(`${totalVol >= 1000 ? (totalVol / 1000).toFixed(1) + "k" : Math.round(totalVol)} lbs`);
+    $("#week-summary").textContent = parts.join(" · ");
+  }
 }
+
+$("#week-prev").addEventListener("click", () => loadWeekView(weekOffset - 1));
+$("#week-next").addEventListener("click", () => loadWeekView(weekOffset + 1));
 
 async function openWorkoutDetail(workoutId) {
   try {
