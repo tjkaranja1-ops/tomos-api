@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-APP_VERSION = "0.9.2"
+APP_VERSION = "0.9.3"
 app = FastAPI(title="TomOS API", version=APP_VERSION, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -80,6 +80,16 @@ def _epley_1rm(weight, reps) -> float:
     if not weight or not reps or reps <= 0:
         return 0.0
     return float(weight) * (1 + float(reps) / 30)
+
+
+def _elapsed_seconds(started_at_iso: str) -> int:
+    """Seconds since a stored (naive, server-clock) start time. Computed here so
+    the client never has to reconcile the UTC server clock with its own
+    timezone — it just anchors the live timer to its own clock + this offset."""
+    try:
+        return max(0, int((datetime.now() - datetime.fromisoformat(started_at_iso)).total_seconds()))
+    except Exception:
+        return 0
 
 
 def _build_session_exercises(conn, template_id: int, workout_id: int) -> list:
@@ -568,7 +578,7 @@ def training_start(body: TrainingStart):
     conn.commit()
     conn.close()
     return {"workout_id": workout_id, "session_name": tmpl["name"], "template_id": tmpl["id"],
-            "started_at": now, "exercises": exercises}
+            "started_at": now, "elapsed_seconds": 0, "exercises": exercises}
 
 
 @app.post("/training/exercises")
@@ -753,6 +763,7 @@ def get_active_workout():
     conn.close()
     return {"workout_id": workout_id, "session_name": active["session_name"],
             "template_id": active["template_id"], "started_at": active["started_at"],
+            "elapsed_seconds": _elapsed_seconds(active["started_at"]),
             "exercises": exercises}
 
 

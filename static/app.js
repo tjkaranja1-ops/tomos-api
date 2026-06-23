@@ -644,7 +644,11 @@ function showActiveSession(session) {
   $("#active-session-name").textContent = session.session_name;
 
   if (timerInterval) clearInterval(timerInterval);
-  timerStart = state.training?.active_workout?.started_at ?? session.started_at ?? new Date().toISOString();
+  // Anchor the timer to THIS device's clock using the server-computed elapsed
+  // seconds. The stored started_at is a naive UTC timestamp; trusting it
+  // directly skewed the timer by the phone's timezone offset (the old "-300:00").
+  const elapsed = Number(session.elapsed_seconds) || 0;
+  timerStart = new Date(Date.now() - elapsed * 1000).toISOString();
   $("#session-timer").textContent = elapsedStr(timerStart);
   timerInterval = setInterval(() => { $("#session-timer").textContent = elapsedStr(timerStart); }, 1000);
 
