@@ -10,6 +10,7 @@ let state = {
   protein: null,    // { date, total_g, goal_g, entries }
   exercises: [],    // full exercise library (loaded once)
   activeSession: null, // { workout_id, session_name, exercises: [...] }
+  checkin: null,    // { date, p1, p2, p3, reflection }
 };
 
 let timerInterval = null;
@@ -92,7 +93,8 @@ function fmtCountdown(secs) {
 const TITLES = {
   home: "TomOS", todo: "Tasks", training: "Train", news: "Feed",
   emails: "Emails", calendar: "Calendar", checkin: "Daily Check-in",
-  nudges: "Nudges", "template-editor": "Edit Template",
+  nudges: "Nudges", finance: "Finance", sleep: "Sleep",
+  "template-editor": "Edit Template",
 };
 const TAB_VIEW_MAP = { home: "home", todo: "todo", training: "training", news: "news" };
 
@@ -110,6 +112,10 @@ function showView(name) {
     t.classList.toggle("active", tv === name || (name === "template-editor" && tv === "training"));
   });
   window.scrollTo({ top: 0, behavior: "instant" });
+  if (name === "checkin") loadCheckin();
+  if (name === "nudges")  loadNudges();
+  if (name === "finance") loadFinance();
+  if (name === "sleep")   loadSleep();
 }
 
 $$(".tab").forEach((tab) => {
@@ -191,7 +197,21 @@ function renderDashboard() {
     </button>`,
     `<button class="dash" data-view="checkin">
       <div class="dash-top"><span class="dash-label">◎ Check-in</span><span class="arrow">›</span></div>
-      <div class="dash-body">Set today's top 3 · evening reflection</div>
+      <div class="dash-body">${(() => {
+        const c = state.checkin;
+        const filled = [c?.p1, c?.p2, c?.p3].filter(Boolean).length;
+        if (filled === 3) return `<span style="color:var(--accent)">All 3 priorities set ✓</span>`;
+        if (filled > 0) return `${filled} of 3 priorities set · tap to continue`;
+        return "Set today's top 3 · evening reflection";
+      })()}</div>
+    </button>`,
+    `<button class="dash" data-view="finance">
+      <div class="dash-top"><span class="dash-label">$ Finance</span><span class="arrow">›</span></div>
+      <div class="dash-body">${financeData ? `$${financeData.total.toFixed(2)} spent this month` : "Track your spending"}</div>
+    </button>`,
+    `<button class="dash" data-view="sleep">
+      <div class="dash-top"><span class="dash-label">◗ Sleep</span><span class="arrow">›</span></div>
+      <div class="dash-body">${sleepData?.avg_hours != null ? `${sleepData.avg_hours}h avg · tap to log last night` : "Log your sleep"}</div>
     </button>`,
   ];
   $("#dash").innerHTML = cards.join("");
@@ -201,14 +221,21 @@ function renderDashboard() {
 // ── To-Do ─────────────────────────────────────────────────────────────────────
 function renderTodos() {
   const t = state.todos;
-  if (!t.length) { $("#todo").innerHTML = emptyState("✓", "No action items yet. Hit ⟳ to pull your latest."); return; }
+  if (!t.length) { $("#todo").innerHTML = emptyState("✓", "No tasks yet — add one above or hit ⟳ to pull from Gmail."); return; }
   const open = t.filter((x) => !x.done).length;
   $("#todo").innerHTML = `<div class="section-label">${open} open · ${t.length - open} done</div>` +
     t.map((item) => `<div class="todo ${item.done ? "done" : ""}" data-id="${item.id}">
       <div class="box"></div>
       <div class="text">${esc(item.text)}${item.briefing_date ? `<span class="meta">${esc(item.briefing_date)}</span>` : ""}</div>
+      ${item.source === "manual" ? `<button class="del-btn" data-id="${item.id}" title="Delete">×</button>` : ""}
     </div>`).join("");
-  $$("#todo .todo").forEach((el) => el.addEventListener("click", () => toggleTodo(Number(el.dataset.id))));
+  $$("#todo .todo").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if (e.target.classList.contains("del-btn")) return;
+      toggleTodo(Number(el.dataset.id));
+    });
+  });
+  $$("#todo .del-btn").forEach((btn) => btn.addEventListener("click", () => deleteTodo(Number(btn.dataset.id))));
 }
 
 async function toggleTodo(id) {
@@ -223,15 +250,66 @@ async function toggleTodo(id) {
   } catch { item.done = !next; renderTodos(); renderDashboard(); toast("Couldn't save"); }
 }
 
+async function createTodo(text) {
+  if (!text.trim()) return;
+  try {
+    const r = await fetch(`${API}/todos`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text.trim() }),
+    });
+    if (!r.ok) throw new Error();
+    const item = await r.json();
+    state.todos.unshift(item);
+    renderTodos(); renderDashboard();
+    const inp = $("#todo-new-input");
+    if (inp) inp.value = "";
+  } catch { toast("Couldn't create task"); }
+}
+
+async function deleteTodo(id) {
+  try {
+    await fetch(`${API}/todos/${id}`, { method: "DELETE" });
+    state.todos = state.todos.filter((x) => x.id !== id);
+    renderTodos(); renderDashboard();
+  } catch { toast("Couldn't delete task"); }
+}
+
+$("#todo-new-btn").addEventListener("click", () => createTodo($("#todo-new-input").value));
+$("#todo-new-input").addEventListener("keydown", (e) => { if (e.key === "Enter") createTodo($("#todo-new-input").value); });
+
 // ── News / Calendar / Emails ───────────────────────────────────────────────────
+// Brand color per outlet so the source panel reads at a glance.
+const NEWS_BRANDS = {
+  "BBC": "#bb1919",
+  "NPR": "#2b6cb0",
+  "The Guardian": "#052962",
+  "Al Jazeera": "#c8731a",
+};
+
+function newsSourceChip(a) {
+  const color = NEWS_BRANDS[a.source] || "var(--accent)";
+  const fav = a.domain
+    ? `<img class="news-fav" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(a.domain)}&sz=64" alt="" loading="lazy" onerror="this.remove()">`
+    : "";
+  return `<span class="news-src" style="--brand:${color}">${fav}${esc(a.source)}</span>`;
+}
+
 function renderNews() {
   const n = state.news;
   if (!n?.length) { $("#news").innerHTML = emptyState("📰", "No fresh headlines right now."); return; }
   $("#news").innerHTML = `<div class="section-label">Top headlines · past 24h</div>` +
-    n.map((a) => `<a class="card news" href="${esc(a.url)}" target="_blank" rel="noopener">
-      <div class="news-meta"><span class="src">${esc(a.source)}</span> · ${esc(relTime(a.published))}</div>
-      <div class="news-title">${esc(a.title)}</div>
-    </a>`).join("");
+    n.map((a) => {
+      const img = a.image
+        ? `<div class="news-img"><img src="${esc(a.image)}" alt="" loading="lazy" onerror="this.closest('.news-img').remove()"></div>`
+        : "";
+      return `<a class="card news" href="${esc(a.url)}" target="_blank" rel="noopener">
+        ${img}
+        <div class="news-body">
+          <div class="news-meta">${newsSourceChip(a)}<span class="news-time">${esc(relTime(a.published))}</span></div>
+          <div class="news-title">${esc(a.title)}</div>
+        </div>
+      </a>`;
+    }).join("");
 }
 
 function renderCalendar() {
@@ -380,76 +458,95 @@ function renderTraining() {
 // ── Week calendar ─────────────────────────────────────────────────────────────
 let weekOffset = 0;
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const MONTH_ABBR = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+// Locale-safe YYYY-MM-DD from a local Date object
+function dateKey(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Parse an ISO timestamp that may have no timezone (stored as server local time)
+// Returns a local Date by stripping sub-second precision then treating as-is
+function parseTs(ts) {
+  return new Date(ts.slice(0, 19).replace("T", "T")); // trim microseconds
+}
 
 async function loadWeekView(offset) {
   weekOffset = offset;
   $("#week-next").disabled = offset >= 0;
   try {
     const r = await fetch(`${API}/training/week?offset=${offset}`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
     renderWeekView(data);
-  } catch { /* silent */ }
+  } catch (err) {
+    console.error("loadWeekView failed:", err);
+    const el = $("#week-days");
+    if (el) el.innerHTML = `<div style="grid-column:1/-1;color:var(--muted);font-size:12px;text-align:center">Couldn't load week</div>`;
+  }
 }
 
 function renderWeekView(data) {
   const sessions = data.sessions || [];
-  const weekStart = new Date(data.week_start + "T12:00:00");
-  const weekEnd   = new Date(data.week_end   + "T12:00:00");
 
-  // Week label
-  const fmt = (d, opts) => d.toLocaleDateString(undefined, opts);
-  const sameMonth = weekStart.getMonth() === weekEnd.getMonth();
-  const label = sameMonth
-    ? `${fmt(weekStart, { month: "short", day: "numeric" })} – ${fmt(weekEnd, { day: "numeric" })}`
-    : `${fmt(weekStart, { month: "short", day: "numeric" })} – ${fmt(weekEnd, { month: "short", day: "numeric" })}`;
+  // Parse week bounds as local dates (add noon to avoid DST edge)
+  const [sy, sm, sd] = data.week_start.split("-").map(Number);
+  const [ey, em, ed] = data.week_end.split("-").map(Number);
+  const weekStart = new Date(sy, sm - 1, sd, 12, 0, 0);
+  const weekEnd   = new Date(ey, em - 1, ed, 12, 0, 0);
+
+  // Week label e.g. "Jun 8 – 14" or "Jun 30 – Jul 6"
+  const fmtDay = (d) => `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`;
+  const label = weekStart.getMonth() === weekEnd.getMonth()
+    ? `${fmtDay(weekStart)} – ${weekEnd.getDate()}`
+    : `${fmtDay(weekStart)} – ${fmtDay(weekEnd)}`;
   $("#week-label").textContent = label;
 
-  // Map date string → session
-  const today = new Date().toLocaleDateString("en-CA");
+  // Build date → session map using locale-independent keys
+  const todayKey = dateKey(new Date());
   const dayMap = {};
   sessions.forEach((s) => {
-    const key = new Date(s.completed_at).toLocaleDateString("en-CA");
-    dayMap[key] = s;
+    const d = parseTs(s.completed_at);
+    dayMap[dateKey(d)] = s;
   });
 
-  // Build 7 day slots
+  // 7 day slots Mon–Sun
   const slots = DAY_NAMES.map((name, i) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    const key = d.toLocaleDateString("en-CA");
-    return { name, key, session: dayMap[key] || null, isToday: key === today };
+    const d = new Date(sy, sm - 1, sd + i, 12, 0, 0);
+    const key = dateKey(d);
+    return { name, key, session: dayMap[key] || null, isToday: key === todayKey };
   });
 
   $("#week-days").innerHTML = slots.map(({ name, session, isToday }) => {
+    const cls = isToday ? " today" : "";
     if (session) {
-      const abbr = session.session_name.slice(0, 2);
+      const abbr = esc(session.session_name.slice(0, 2));
       return `<div class="day-slot">
-        <div class="day-name${isToday ? " today" : ""}">${name}</div>
-        <button class="day-circle" data-id="${session.id}" title="${esc(session.session_name)}">${esc(abbr)}</button>
+        <div class="day-name${cls}">${name}</div>
+        <button class="day-circle" data-id="${session.id}">${abbr}</button>
         <div class="day-session-label done">${esc(session.session_name)}</div>
       </div>`;
     }
     return `<div class="day-slot">
-      <div class="day-name${isToday ? " today" : ""}">${name}</div>
+      <div class="day-name${cls}">${name}</div>
       <div class="day-circle"></div>
       <div class="day-session-label">—</div>
     </div>`;
   }).join("");
 
-  // Bind taps
   $("#week-days").querySelectorAll("button.day-circle").forEach((btn) =>
     btn.addEventListener("click", () => openWorkoutDetail(Number(btn.dataset.id)))
   );
 
-  // Summary line
+  // Summary
+  const totalSets = sessions.reduce((a, s) => a + (s.total_sets || 0), 0);
+  const totalVol  = sessions.reduce((a, s) => a + (s.total_volume || 0), 0);
   if (!sessions.length) {
     $("#week-summary").innerHTML = `<span class="week-empty">No sessions this week</span>`;
   } else {
-    const totalSets = sessions.reduce((a, s) => a + (s.total_sets || 0), 0);
-    const totalVol  = sessions.reduce((a, s) => a + (s.total_volume || 0), 0);
     const parts = [`${sessions.length} session${sessions.length !== 1 ? "s" : ""}`];
-    if (totalSets)  parts.push(`${totalSets} sets`);
-    if (totalVol)   parts.push(`${totalVol >= 1000 ? (totalVol / 1000).toFixed(1) + "k" : Math.round(totalVol)} lbs`);
+    if (totalSets) parts.push(`${totalSets} sets`);
+    if (totalVol)  parts.push(`${totalVol >= 1000 ? (totalVol / 1000).toFixed(1) + "k" : Math.round(totalVol)} lbs`);
     $("#week-summary").textContent = parts.join(" · ");
   }
 }
@@ -980,6 +1077,429 @@ async function selectExercise(exerciseId, name, isCompound) {
   }
 }
 
+// ── Nudges ────────────────────────────────────────────────────────────────────
+async function loadNudges() {
+  try {
+    const r = await fetch(`${API}/nudges`);
+    if (!r.ok) throw new Error();
+    const data = await r.json();
+    renderNudges(data);
+  } catch {
+    $("#nudges-list").innerHTML = emptyState("✦", "Couldn't load nudges.");
+  }
+}
+
+function renderNudges(nudges) {
+  if (!nudges.length) { $("#nudges-list").innerHTML = emptyState("✦", "No nudges right now."); return; }
+  $("#nudges-list").innerHTML = nudges.map((n) =>
+    `<div class="card nudge-card ${n.type}">
+      <div class="nudge-title">${esc(n.title)}</div>
+      <div class="nudge-body">${esc(n.body)}</div>
+    </div>`
+  ).join("");
+}
+
+// ── Finance (redesigned) ──────────────────────────────────────────────────────
+const FINANCE_CATS = [
+  { id: "food",          label: "Food",          icon: "🍔", color: "#f97316" },
+  { id: "coffee",        label: "Coffee",         icon: "☕", color: "#c084fc" },
+  { id: "transport",     label: "Transport",      icon: "🚗", color: "#38bdf8" },
+  { id: "entertainment", label: "Fun",            icon: "🎮", color: "#34d399" },
+  { id: "shopping",      label: "Shopping",       icon: "🛍", color: "#fb7185" },
+  { id: "health",        label: "Health",         icon: "💊", color: "#4ade80" },
+  { id: "other",         label: "Other",          icon: "📦", color: "#94a3b8" },
+];
+const MONTH_NAMES_LONG  = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+const MONTH_NAMES_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+let financeData   = null;
+let financeWeeks  = null;
+let financeMonths = null;
+let finYear  = new Date().getFullYear();
+let finMonth = new Date().getMonth() + 1;
+let selectedFinanceCat = "food";
+let finTrendMode = "weekly"; // "weekly" | "monthly"
+
+function catMeta(id) {
+  return FINANCE_CATS.find((c) => c.id === id) ?? FINANCE_CATS[FINANCE_CATS.length - 1];
+}
+
+// ── SVG helpers ───────────────────────────────────────────────────────────────
+function polarToCart(cx, cy, r, deg) {
+  const rad = ((deg - 90) * Math.PI) / 180;
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function donutPath(cx, cy, R, r, startDeg, endDeg) {
+  if (endDeg - startDeg >= 360) endDeg = startDeg + 359.99;
+  const s  = polarToCart(cx, cy, R, startDeg);
+  const e  = polarToCart(cx, cy, R, endDeg);
+  const si = polarToCart(cx, cy, r, endDeg);
+  const ei = polarToCart(cx, cy, r, startDeg);
+  const lg = (endDeg - startDeg) > 180 ? 1 : 0;
+  const f  = (n) => n.toFixed(2);
+  return `M${f(s.x)},${f(s.y)} A${R},${R},0,${lg},1,${f(e.x)},${f(e.y)} L${f(si.x)},${f(si.y)} A${r},${r},0,${lg},0,${f(ei.x)},${f(ei.y)} Z`;
+}
+
+function drawDonut(byCategory, total) {
+  const svg = $("#fin-donut");
+  if (!svg) return;
+  const cx = 100, cy = 100, R = 85, r = 58, GAP = 2;
+
+  if (!total || !byCategory.length) {
+    svg.innerHTML = `<circle cx="100" cy="100" r="85" fill="none" stroke="var(--surface-2)" stroke-width="27"/>`;
+    return;
+  }
+
+  let cursor = 0;
+  const paths = byCategory.map((c) => {
+    const slice = (c.total / total) * 360;
+    const start = cursor + GAP / 2;
+    const end   = cursor + slice - GAP / 2;
+    cursor += slice;
+    const meta = catMeta(c.category);
+    return `<path d="${donutPath(cx, cy, R, r, start, end)}" fill="${meta.color}" opacity="0.9"/>`;
+  });
+  svg.innerHTML = paths.join("");
+}
+
+function drawTrendBars(bars, labels) {
+  const svg = $("#fin-trend-svg");
+  if (!svg) return;
+  const W = 320, H = 70, labelH = 20, barW = Math.floor(W / bars.length) - 4;
+  const maxVal = Math.max(...bars, 1);
+
+  const rects = bars.map((v, i) => {
+    const bh = Math.max(3, Math.round((v / maxVal) * H));
+    const x  = Math.round(i * (W / bars.length) + 2);
+    const y  = H - bh;
+    const opacity = i === bars.length - 1 ? "1" : "0.55";
+    return `<rect x="${x}" y="${y}" width="${barW}" height="${bh}" rx="4" fill="var(--accent)" opacity="${opacity}"/>
+            <text x="${x + barW / 2}" y="${H + labelH - 2}" text-anchor="middle" font-size="9" fill="var(--muted)" font-family="inherit">${esc(labels[i])}</text>`;
+  });
+
+  svg.setAttribute("viewBox", `0 0 ${W} ${H + labelH}`);
+  svg.innerHTML = rects.join("");
+}
+
+// ── Finance load & render ─────────────────────────────────────────────────────
+async function loadFinance() {
+  try {
+    const [mRes, wRes, moRes] = await Promise.all([
+      fetch(`${API}/finance/month?year=${finYear}&month=${finMonth}`),
+      fetch(`${API}/finance/weeks?count=8`),
+      fetch(`${API}/finance/months?count=6`),
+    ]);
+    financeData   = mRes.ok  ? await mRes.json()  : null;
+    financeWeeks  = wRes.ok  ? await wRes.json()  : null;
+    financeMonths = moRes.ok ? await moRes.json() : null;
+    renderFinance();
+  } catch { toast("Couldn't load finance"); }
+}
+
+function renderFinance() {
+  if (!financeData) return;
+  const { year, month, total, by_category, entries } = financeData;
+  const now = new Date();
+  const isCurrent = year === now.getFullYear() && month === now.getMonth() + 1;
+
+  // Period label + nav
+  $("#fin-period-label").textContent = `${MONTH_NAMES_LONG[month - 1]} ${year}`;
+  $("#fin-next").disabled = isCurrent;
+
+  // Donut
+  drawDonut(by_category, total);
+  $("#fin-donut-total").textContent = `$${total.toFixed(0)}`;
+
+  // Legend
+  const legendEl = $("#fin-legend");
+  if (legendEl) {
+    legendEl.innerHTML = by_category.length
+      ? by_category.map((c) => {
+          const meta = catMeta(c.category);
+          const pct  = total ? Math.round((c.total / total) * 100) : 0;
+          return `<div class="fin-legend-item">
+            <div class="fin-legend-dot" style="background:${meta.color}"></div>
+            <div class="fin-legend-name">${meta.icon} ${meta.label}</div>
+            <div class="fin-legend-pct">${pct}%</div>
+            <div class="fin-legend-amt">$${c.total.toFixed(0)}</div>
+          </div>`;
+        }).join("")
+      : `<div style="color:var(--muted);font-size:13px">Nothing logged yet</div>`;
+  }
+
+  // Trend chart
+  renderTrendChart();
+
+  // Transactions (grouped by date)
+  const entriesEl = $("#finance-entries");
+  if (!entries.length) { entriesEl.innerHTML = ""; return; }
+
+  const byDate = {};
+  entries.forEach((e) => {
+    (byDate[e.date] = byDate[e.date] || []).push(e);
+  });
+
+  entriesEl.innerHTML = Object.entries(byDate).map(([dateStr, rows]) => {
+    const d = new Date(dateStr + "T12:00:00");
+    const label = d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    const rowsHtml = rows.map((e) => {
+      const meta = catMeta(e.category);
+      return `<div class="fin-entry-row">
+        <div class="fin-entry-icon">${meta.icon}</div>
+        <div class="fin-entry-info">
+          <div class="fin-entry-note">${esc(e.note || meta.label)}</div>
+          <div class="fin-entry-cat" style="color:${meta.color}">${meta.label}</div>
+        </div>
+        <div class="fin-entry-amt">−$${Number(e.amount).toFixed(2)}</div>
+        <button class="fin-entry-del" data-id="${e.id}">×</button>
+      </div>`;
+    }).join("");
+    return `<div class="fin-date-group">
+      <div class="fin-date-label">${esc(label)}</div>
+      <div class="fin-entry-card">${rowsHtml}</div>
+    </div>`;
+  }).join("");
+
+  entriesEl.querySelectorAll(".fin-entry-del").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      try {
+        await fetch(`${API}/finance/log/${btn.dataset.id}`, { method: "DELETE" });
+        await loadFinance();
+      } catch { toast("Couldn't delete"); }
+    })
+  );
+}
+
+function renderTrendChart() {
+  if (finTrendMode === "weekly" && financeWeeks) {
+    const bars   = financeWeeks.map((w) => w.total);
+    const labels = financeWeeks.map((w) => {
+      const d = new Date(w.week_start + "T12:00:00");
+      return `${MONTH_NAMES_SHORT[d.getMonth()]} ${d.getDate()}`;
+    });
+    drawTrendBars(bars, labels);
+  } else if (finTrendMode === "monthly" && financeMonths) {
+    const bars   = financeMonths.map((m) => m.total);
+    const labels = financeMonths.map((m) => MONTH_NAMES_SHORT[m.month - 1]);
+    drawTrendBars(bars, labels);
+  }
+}
+
+// Period navigation
+let _finPrevEl, _finNextEl;
+function bindFinNav() {
+  _finPrevEl = $("#fin-prev");
+  _finNextEl = $("#fin-next");
+  if (_finPrevEl) _finPrevEl.addEventListener("click", () => {
+    finMonth--;
+    if (finMonth < 1) { finMonth = 12; finYear--; }
+    loadFinance();
+  });
+  if (_finNextEl) _finNextEl.addEventListener("click", () => {
+    finMonth++;
+    if (finMonth > 12) { finMonth = 1; finYear++; }
+    loadFinance();
+  });
+}
+bindFinNav();
+
+// Trend toggle
+const _weeklyBtn  = $("#fin-weekly-btn");
+const _monthlyBtn = $("#fin-monthly-btn");
+if (_weeklyBtn) _weeklyBtn.addEventListener("click", () => {
+  finTrendMode = "weekly";
+  _weeklyBtn.classList.add("active"); _monthlyBtn.classList.remove("active");
+  renderTrendChart();
+});
+if (_monthlyBtn) _monthlyBtn.addEventListener("click", () => {
+  finTrendMode = "monthly";
+  _monthlyBtn.classList.add("active"); _weeklyBtn.classList.remove("active");
+  renderTrendChart();
+});
+
+// Log modal
+function openFinanceModal() {
+  const chipsEl = $("#finance-cat-chips");
+  chipsEl.innerHTML = FINANCE_CATS.map((c) =>
+    `<button class="finance-cat-chip ${c.id === selectedFinanceCat ? "active" : ""}" data-cat="${c.id}">${c.icon} ${c.label}</button>`
+  ).join("");
+  chipsEl.querySelectorAll(".finance-cat-chip").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      selectedFinanceCat = btn.dataset.cat;
+      chipsEl.querySelectorAll(".finance-cat-chip").forEach((b) => b.classList.toggle("active", b === btn));
+    })
+  );
+  $("#finance-amount").value = "";
+  $("#finance-note").value = "";
+  $("#finance-modal").hidden = false;
+  setTimeout(() => $("#finance-amount").focus(), 80);
+}
+function closeFinanceModal() { $("#finance-modal").hidden = true; }
+
+$("#fin-log-fab").addEventListener("click", openFinanceModal);
+$("#finance-modal-close").addEventListener("click", closeFinanceModal);
+$("#finance-modal-cancel").addEventListener("click", closeFinanceModal);
+$("#finance-modal-log").addEventListener("click", async () => {
+  const amount = parseFloat($("#finance-amount").value);
+  if (!amount || amount <= 0) { toast("Enter an amount"); return; }
+  const note = $("#finance-note").value.trim() || null;
+  try {
+    await fetch(`${API}/finance/log`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount, category: selectedFinanceCat, note }),
+    });
+    closeFinanceModal();
+    toast(`$${amount.toFixed(2)} logged`);
+    await loadFinance();
+    renderDashboard();
+  } catch { toast("Couldn't log expense"); }
+});
+
+// ── Sleep ──────────────────────────────────────────────────────────────────────
+let sleepData = null;
+let sleepQuality = 0;
+
+async function loadSleep() {
+  try {
+    const r = await fetch(`${API}/sleep/recent?days=7`);
+    if (!r.ok) throw new Error();
+    sleepData = await r.json();
+    renderSleep();
+  } catch { /* silent */ }
+}
+
+function renderSleep() {
+  if (!sleepData) return;
+  const { entries, avg_hours } = sleepData;
+
+  $("#sleep-avg").textContent = avg_hours != null ? `${avg_hours}h` : "—";
+
+  // Pre-fill today's logged value if it exists
+  const todayKey = dateKey(new Date());
+  const todayEntry = entries.find((e) => e.date === todayKey);
+  if (todayEntry) {
+    const inp = $("#sleep-hours");
+    if (inp && document.activeElement !== inp) inp.value = todayEntry.hours;
+    sleepQuality = todayEntry.quality ?? 0;
+    renderSleepStars();
+  }
+
+  // 7-day bar chart (Mon–Sun of the current week)
+  const barsEl = $("#sleep-bars");
+  const maxH = 10;
+  const today = new Date();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const bars = DAY_NAMES.map((name, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    const key = dateKey(d);
+    const entry = entries.find((e) => e.date === key);
+    const h = entry?.hours ?? 0;
+    const heightPct = h ? Math.min(100, Math.round((h / maxH) * 100)) : 0;
+    const cls = !h ? "" : h >= 7.5 ? "good" : h >= 6 ? "mid" : "low";
+    return `<div class="sleep-bar-slot">
+      <div class="sleep-bar ${cls}" style="height:${heightPct}%"></div>
+      <div class="sleep-bar-label">${name}</div>
+    </div>`;
+  });
+  barsEl.innerHTML = bars.join("");
+}
+
+function renderSleepStars() {
+  const el = $("#sleep-stars");
+  if (!el) return;
+  el.innerHTML = [1,2,3,4,5].map((n) =>
+    `<button class="sleep-star ${n <= sleepQuality ? "active" : ""}" data-q="${n}">${n}</button>`
+  ).join("");
+  el.querySelectorAll(".sleep-star").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      sleepQuality = Number(btn.dataset.q);
+      renderSleepStars();
+    })
+  );
+}
+
+$("#sleep-log-btn").addEventListener("click", async () => {
+  const hours = parseFloat($("#sleep-hours").value);
+  if (!hours || hours <= 0 || hours > 24) { toast("Enter valid hours (e.g. 7.5)"); return; }
+  try {
+    await fetch(`${API}/sleep/log`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hours, quality: sleepQuality || null }),
+    });
+    toast(`${hours}h logged`);
+    await loadSleep();
+  } catch { toast("Couldn't log sleep"); }
+});
+
+// ── Daily Check-in ────────────────────────────────────────────────────────────
+let ciSaveTimer = null;
+
+async function loadCheckin() {
+  try {
+    const r = await fetch(`${API}/checkin/today`);
+    if (!r.ok) throw new Error();
+    state.checkin = await r.json();
+    renderCheckin();
+  } catch { /* silent — view still usable */ }
+}
+
+function renderCheckin() {
+  const c = state.checkin;
+  if (!c) return;
+  const p1 = $("#ci-p1"); if (p1 && document.activeElement !== p1) p1.value = c.p1 ?? "";
+  const p2 = $("#ci-p2"); if (p2 && document.activeElement !== p2) p2.value = c.p2 ?? "";
+  const p3 = $("#ci-p3"); if (p3 && document.activeElement !== p3) p3.value = c.p3 ?? "";
+  const ref = $("#ci-reflection"); if (ref && document.activeElement !== ref) ref.value = c.reflection ?? "";
+  updateCheckinStatus();
+}
+
+function updateCheckinStatus() {
+  const p1 = ($("#ci-p1")?.value ?? "").trim();
+  const p2 = ($("#ci-p2")?.value ?? "").trim();
+  const p3 = ($("#ci-p3")?.value ?? "").trim();
+  const filled = [p1, p2, p3].filter(Boolean).length;
+  const el = $("#ci-status");
+  if (!el) return;
+  el.textContent = filled === 3 ? "All 3 priorities set ✓" : filled > 0 ? `${filled} of 3 priorities set` : "";
+}
+
+async function saveCheckin() {
+  const body = {
+    p1: ($("#ci-p1")?.value ?? "").trim() || null,
+    p2: ($("#ci-p2")?.value ?? "").trim() || null,
+    p3: ($("#ci-p3")?.value ?? "").trim() || null,
+    reflection: ($("#ci-reflection")?.value ?? "").trim() || null,
+  };
+  try {
+    const r = await fetch(`${API}/checkin/today`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error();
+    state.checkin = await r.json();
+    updateCheckinStatus();
+    renderDashboard();
+    const el = $("#ci-status");
+    if (el) { el.textContent = (el.textContent || "Saved") + " · saved"; setTimeout(() => updateCheckinStatus(), 1500); }
+  } catch { /* silent — will retry on next blur */ }
+}
+
+function scheduleSave() {
+  clearTimeout(ciSaveTimer);
+  ciSaveTimer = setTimeout(saveCheckin, 800);
+}
+
+["ci-p1", "ci-p2", "ci-p3", "ci-reflection"].forEach((id) => {
+  const el = $(`#${id}`);
+  if (el) {
+    el.addEventListener("input", () => { updateCheckinStatus(); scheduleSave(); });
+    el.addEventListener("blur", () => { clearTimeout(ciSaveTimer); saveCheckin(); });
+  }
+});
+
 // ── Data Loading ──────────────────────────────────────────────────────────────
 async function loadAll() {
   try {
@@ -1026,7 +1546,8 @@ async function loadProtein() {
 // ── Boot ──────────────────────────────────────────────────────────────────────
 async function boot() {
   showView("home");
-  await Promise.all([loadAll(), loadTraining(), loadProtein()]);
+  renderSleepStars(); // render stars before DOM is active so listeners bind
+  await Promise.all([loadAll(), loadTraining(), loadProtein(), loadCheckin()]);
   renderTraining();
   renderDashboard();
   loadNews();

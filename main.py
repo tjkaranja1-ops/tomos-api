@@ -193,6 +193,9 @@ def manifest():
 
 # ── To-Do ─────────────────────────────────────────────────────────────────────
 
+class TodoCreate(BaseModel):
+    text: str
+
 class TodoPatch(BaseModel):
     done: bool
 
@@ -202,6 +205,22 @@ def list_todos():
     rows = conn.execute("SELECT * FROM todos ORDER BY done ASC, created_at DESC").fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+@app.post("/todos")
+def create_todo(body: TodoCreate):
+    if not body.text.strip():
+        raise HTTPException(status_code=400, detail="text required")
+    now = datetime.now().isoformat()
+    today = date.today().isoformat()
+    conn = db.get_conn()
+    cur = conn.execute(
+        "INSERT INTO todos(text, source, done, created_at, briefing_date) VALUES (?,?,0,?,?)",
+        (body.text.strip(), "manual", now, today),
+    )
+    row = conn.execute("SELECT * FROM todos WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.commit()
+    conn.close()
+    return dict(row)
 
 @app.patch("/todos/{todo_id}")
 def patch_todo(todo_id: int, patch: TodoPatch):
@@ -215,6 +234,17 @@ def patch_todo(todo_id: int, patch: TodoPatch):
     row = conn.execute("SELECT * FROM todos WHERE id=?", (todo_id,)).fetchone()
     conn.close()
     return dict(row)
+
+@app.delete("/todos/{todo_id}")
+def delete_todo(todo_id: int):
+    conn = db.get_conn()
+    if not conn.execute("SELECT id FROM todos WHERE id=?", (todo_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="not found")
+    conn.execute("DELETE FROM todos WHERE id=?", (todo_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
 
 
 # ── Calendar ──────────────────────────────────────────────────────────────────
@@ -851,6 +881,250 @@ def protein_delete(entry_id: int):
     conn.commit()
     conn.close()
     return {"ok": True}
+
+
+# ── Nudges ────────────────────────────────────────────────────────────────────
+
+@app.get("/nudges")
+def get_nudges():
+    conn = db.get_conn()
+    nudges = []
+    now = datetime.now()
+    today = date.today().isoformat()
+    hour = now.hour
+
+    # Protein
+    prow = conn.execute(
+        "SELECT COALESCE(SUM(protein_g),0) as total FROM protein_log WHERE date=?", (today,)
+    ).fetchone()
+    protein_g = prow["total"] if prow else 0
+    if hour >= 20 and protein_g < PROTEIN_GOAL * 0.8:
+        nudges.append({"type": "warn", "title": "Protein behind tonight",
+                       "body": f"{round(protein_g)}g logged — {PROTEIN_GOAL - round(protein_g)}g still to go."})
+    elif hour >= 14 and protein_g < PROTEIN_GOAL * 0.5:
+        nudges.append({"type": "warn", "title": "Protein lagging",
+                       "body": f"Only {round(protein_g)}g by the afternoon. Aim for {PROTEIN_GOAL}g today."})
+
+    # Training frequency
+    last = conn.execute(
+        "SELECT completed_at FROM workouts WHERE completed_at IS NOT NULL ORDER BY completed_at DESC LIMIT 1"
+    ).fetchone()
+    if last:
+        try:
+            last_dt = datetime.fromisoformat(last["completed_at"].split(".")[0])
+            days_ago = (now - last_dt).days
+            if days_ago >= 3:
+                nudges.append({"type": "warn", "title": f"Training gap: {days_ago} days",
+                               "body": "Consistency wins. Time to get back in the gym."})
+            elif days_ago == 2:
+                nudges.append({"type": "info", "title": "Second rest day",
+                               "body": "Body's had time to recover — consider training today."})
+        except Exception:
+            pass
+    else:
+        nudges.append({"type": "info", "title": "No workouts logged yet",
+                       "body": "Head to the Train tab to start your first session."})
+
+    # Check-in priorities
+    ci = conn.execute("SELECT p1 FROM daily_checkins WHERE date=?", (today,)).fetchone()
+    if not ci or not ci["p1"]:
+        nudges.append({"type": "info", "title": "Priorities not set today",
+                       "body": "Open Daily Check-in to lock in your top 3."})
+
+    # Sleep
+    sleep = conn.execute("SELECT hours FROM sleep_log ORDER BY date DESC LIMIT 3").fetchall()
+    if sleep:
+        recent_avg = sum(r["hours"] for r in sleep) / len(sleep)
+        if recent_avg < 7:
+            nudges.append({"type": "warn", "title": f"Sleep avg: {recent_avg:.1f}h",
+                           "body": "You've been under 7h recently. Prioritize sleep tonight."})
+
+    conn.close()
+
+    if not nudges:
+        nudges.append({"type": "good", "title": "All good",
+                       "body": "Protein on track, training consistent, priorities set. Keep it up."})
+    return nudges
+
+
+# ── Daily Check-in ────────────────────────────────────────────────────────────
+
+class CheckinBody(BaseModel):
+    p1: Optional[str] = None
+    p2: Optional[str] = None
+    p3: Optional[str] = None
+    reflection: Optional[str] = None
+
+@app.get("/checkin/today")
+def checkin_today():
+    today = date.today().isoformat()
+    conn = db.get_conn()
+    row = conn.execute("SELECT * FROM daily_checkins WHERE date=?", (today,)).fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return {"date": today, "p1": None, "p2": None, "p3": None, "reflection": None}
+
+@app.post("/checkin/today")
+def save_checkin(body: CheckinBody):
+    today = date.today().isoformat()
+    now = datetime.now().isoformat()
+    conn = db.get_conn()
+    existing = conn.execute("SELECT id FROM daily_checkins WHERE date=?", (today,)).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE daily_checkins SET p1=?, p2=?, p3=?, reflection=?, updated_at=? WHERE date=?",
+            (body.p1, body.p2, body.p3, body.reflection, now, today),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO daily_checkins(date, p1, p2, p3, reflection, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+            (today, body.p1, body.p2, body.p3, body.reflection, now, now),
+        )
+    conn.commit()
+    row = conn.execute("SELECT * FROM daily_checkins WHERE date=?", (today,)).fetchone()
+    conn.close()
+    return dict(row)
+
+
+# ── Finance ────────────────────────────────────────────────────────────────────
+
+FINANCE_CATEGORIES = ["food", "coffee", "transport", "entertainment", "shopping", "health", "other"]
+
+class FinanceEntry(BaseModel):
+    amount: float
+    category: str = "other"
+    note: Optional[str] = None
+
+@app.get("/finance/month")
+def finance_month(year: int = Query(None), month: int = Query(None)):
+    today = date.today()
+    y = year or today.year
+    m = month or today.month
+    start = f"{y:04d}-{m:02d}-01"
+    end = f"{y+1:04d}-01-01" if m == 12 else f"{y:04d}-{m+1:02d}-01"
+    conn = db.get_conn()
+    rows = conn.execute(
+        "SELECT * FROM finance_log WHERE date >= ? AND date < ? ORDER BY logged_at DESC",
+        (start, end),
+    ).fetchall()
+    by_cat = conn.execute(
+        "SELECT category, ROUND(SUM(amount),2) as total FROM finance_log WHERE date >= ? AND date < ? GROUP BY category ORDER BY total DESC",
+        (start, end),
+    ).fetchall()
+    conn.close()
+    total = round(sum(r["amount"] for r in rows), 2)
+    return {
+        "year": y, "month": m, "total": total,
+        "by_category": [{"category": r["category"], "total": r["total"]} for r in by_cat],
+        "entries": [dict(r) for r in rows],
+    }
+
+@app.post("/finance/log")
+def finance_log(entry: FinanceEntry):
+    cat = entry.category if entry.category in FINANCE_CATEGORIES else "other"
+    today = date.today().isoformat()
+    now = datetime.now().isoformat()
+    conn = db.get_conn()
+    cur = conn.execute(
+        "INSERT INTO finance_log(date, amount, category, note, logged_at) VALUES (?,?,?,?,?)",
+        (today, round(entry.amount, 2), cat, entry.note, now),
+    )
+    row = conn.execute("SELECT * FROM finance_log WHERE id=?", (cur.lastrowid,)).fetchone()
+    conn.commit()
+    conn.close()
+    return dict(row)
+
+@app.delete("/finance/log/{entry_id}")
+def finance_delete(entry_id: int):
+    conn = db.get_conn()
+    if not conn.execute("SELECT id FROM finance_log WHERE id=?", (entry_id,)).fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="not found")
+    conn.execute("DELETE FROM finance_log WHERE id=?", (entry_id,))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+@app.get("/finance/weeks")
+def finance_weeks(count: int = Query(8)):
+    today = date.today()
+    conn = db.get_conn()
+    weeks = []
+    for i in range(count - 1, -1, -1):
+        monday = today - timedelta(days=today.weekday()) - timedelta(weeks=i)
+        sunday = monday + timedelta(days=6)
+        row = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) as total FROM finance_log WHERE date >= ? AND date <= ?",
+            (monday.isoformat(), sunday.isoformat()),
+        ).fetchone()
+        weeks.append({"week_start": monday.isoformat(), "total": round(row["total"], 2)})
+    conn.close()
+    return weeks
+
+@app.get("/finance/months")
+def finance_months(count: int = Query(6)):
+    today = date.today()
+    conn = db.get_conn()
+    months = []
+    for i in range(count - 1, -1, -1):
+        # walk back i months from the current month
+        m = today.month - i
+        y = today.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        start = f"{y:04d}-{m:02d}-01"
+        nm = m + 1 if m < 12 else 1
+        ny = y if m < 12 else y + 1
+        end = f"{ny:04d}-{nm:02d}-01"
+        row = conn.execute(
+            "SELECT COALESCE(SUM(amount), 0) as total FROM finance_log WHERE date >= ? AND date < ?",
+            (start, end),
+        ).fetchone()
+        months.append({"year": y, "month": m, "total": round(row["total"], 2)})
+    conn.close()
+    return months
+
+
+# ── Sleep ──────────────────────────────────────────────────────────────────────
+
+class SleepEntry(BaseModel):
+    hours: float
+    quality: Optional[int] = None
+    note: Optional[str] = None
+
+@app.get("/sleep/recent")
+def sleep_recent(days: int = Query(7)):
+    conn = db.get_conn()
+    rows = conn.execute("SELECT * FROM sleep_log ORDER BY date DESC LIMIT ?", (days,)).fetchall()
+    conn.close()
+    data = [dict(r) for r in rows]
+    avg = round(sum(r["hours"] for r in data) / len(data), 1) if data else None
+    return {"entries": data, "avg_hours": avg}
+
+@app.post("/sleep/log")
+def sleep_log_entry(entry: SleepEntry):
+    if entry.hours <= 0 or entry.hours > 24:
+        raise HTTPException(status_code=400, detail="hours must be 0-24")
+    today = date.today().isoformat()
+    now = datetime.now().isoformat()
+    conn = db.get_conn()
+    existing = conn.execute("SELECT id FROM sleep_log WHERE date=?", (today,)).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE sleep_log SET hours=?, quality=?, note=?, logged_at=? WHERE date=?",
+            (entry.hours, entry.quality, entry.note, now, today),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO sleep_log(date, hours, quality, note, logged_at) VALUES (?,?,?,?,?)",
+            (today, entry.hours, entry.quality, entry.note, now),
+        )
+    conn.commit()
+    row = conn.execute("SELECT * FROM sleep_log WHERE date=?", (today,)).fetchone()
+    conn.close()
+    return dict(row)
 
 
 # Static assets — mounted last so explicit routes win.

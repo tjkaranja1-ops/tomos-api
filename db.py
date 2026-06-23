@@ -223,6 +223,35 @@ def init_db():
             protein_g   REAL NOT NULL,
             logged_at   TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS daily_checkins (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL UNIQUE,
+            p1          TEXT,
+            p2          TEXT,
+            p3          TEXT,
+            reflection  TEXT,
+            created_at  TEXT,
+            updated_at  TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS finance_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL,
+            amount      REAL NOT NULL,
+            category    TEXT NOT NULL DEFAULT 'other',
+            note        TEXT,
+            logged_at   TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS sleep_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            date        TEXT NOT NULL UNIQUE,
+            hours       REAL NOT NULL,
+            quality     INTEGER,
+            note        TEXT,
+            logged_at   TEXT
+        );
     """)
     conn.commit()
     # Migrate columns added after initial deploy

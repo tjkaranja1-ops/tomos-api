@@ -5,6 +5,7 @@ of trusted outlets in parallel, dedupes, keeps the last 24h, ranks by recency.
 Cached in-memory for 20 min so the app loads fast and we don't hammer sources.
 """
 
+import re
 import time
 import calendar
 import urllib.request
@@ -12,19 +13,41 @@ import concurrent.futures
 
 import feedparser
 
+# (display name, RSS url, domain) — domain drives the source logo on the client.
 SOURCES = [
-    ("BBC", "https://feeds.bbci.co.uk/news/world/rss.xml"),
-    ("NPR", "https://feeds.npr.org/1001/rss.xml"),
-    ("The Guardian", "https://www.theguardian.com/world/rss"),
-    ("Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml"),
+    ("BBC", "https://feeds.bbci.co.uk/news/world/rss.xml", "bbc.co.uk"),
+    ("NPR", "https://feeds.npr.org/1001/rss.xml", "npr.org"),
+    ("The Guardian", "https://www.theguardian.com/world/rss", "theguardian.com"),
+    ("Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml", "aljazeera.com"),
 ]
 
 _TTL = 20 * 60  # seconds
 _CACHE = {"ts": 0.0, "data": []}
 
 
+def _extract_image(e):
+    """Best-effort thumbnail for an entry. Outlets expose images a few ways;
+    try the structured fields first, then fall back to an <img> in the HTML."""
+    for key in ("media_thumbnail", "media_content"):
+        for m in e.get(key) or []:
+            url = m.get("url")
+            if not url:
+                continue
+            # media_thumbnail is always an image; media_content may not be.
+            if key == "media_thumbnail" or str(m.get("type", "image")).startswith("image"):
+                return url
+    for link in e.get("links", []):
+        if link.get("rel") == "enclosure" and str(link.get("type", "")).startswith("image"):
+            return link.get("href")
+    html = e.get("summary", "") or ""
+    if not html and e.get("content"):
+        html = e["content"][0].get("value", "")
+    m = re.search(r'<img[^>]+src="([^"]+)"', html)
+    return m.group(1) if m else None
+
+
 def _fetch_one(src):
-    name, url = src
+    name, url, domain = src
     items = []
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "TomOS/1.0 (+headlines)"})
@@ -37,6 +60,8 @@ def _fetch_one(src):
                 "title": (e.get("title") or "").strip(),
                 "url": e.get("link") or "",
                 "source": name,
+                "domain": domain,
+                "image": _extract_image(e),
                 "published_ts": calendar.timegm(pp) if pp else None,
             })
     except Exception:

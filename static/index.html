@@ -26,7 +26,13 @@
     <section id="view-home" class="view active"><div id="dash"></div></section>
 
     <!-- TASKS -->
-    <section id="view-todo" class="view"><div id="todo"></div></section>
+    <section id="view-todo" class="view">
+      <div class="todo-create-wrap">
+        <input id="todo-new-input" class="todo-new-input" type="text" placeholder="Add a task…" autocomplete="off" />
+        <button id="todo-new-btn" class="todo-new-btn">+</button>
+      </div>
+      <div id="todo"></div>
+    </section>
 
     <!-- TRAIN -->
     <section id="view-training" class="view">
@@ -98,27 +104,82 @@
 
     <!-- DAILY CHECK-IN -->
     <section id="view-checkin" class="view">
-      <div class="card checkin">
+      <div class="card">
         <div class="checkin-head">Top 3 for today</div>
-        <div class="prio"><span class="num">1</span><span class="line"></span></div>
-        <div class="prio"><span class="num">2</span><span class="line"></span></div>
-        <div class="prio"><span class="num">3</span><span class="line"></span></div>
+        <div class="prio"><span class="num">1</span><input class="prio-input" id="ci-p1" type="text" placeholder="First priority…" autocomplete="off" /></div>
+        <div class="prio"><span class="num">2</span><input class="prio-input" id="ci-p2" type="text" placeholder="Second priority…" autocomplete="off" /></div>
+        <div class="prio"><span class="num">3</span><input class="prio-input" id="ci-p3" type="text" placeholder="Third priority…" autocomplete="off" /></div>
       </div>
-      <div class="card checkin">
-        <div class="checkin-head">Tonight · reflection</div>
-        <p class="hint">What got done · what slipped · one adjustment for tomorrow</p>
+      <div class="card">
+        <div class="checkin-head">Evening reflection</div>
+        <p class="hint">What got done · what slipped · one thing to adjust tomorrow</p>
+        <textarea class="reflection-input" id="ci-reflection" placeholder="…" rows="5"></textarea>
       </div>
+      <div class="ci-status" id="ci-status"></div>
     </section>
 
     <!-- NUDGES -->
     <section id="view-nudges" class="view">
-      <div class="card nudge warn">
-        <div class="nudge-dot"></div>
-        <div><b>Protein is behind.</b> Log food in the Train tab to track progress.</div>
+      <div id="nudges-list"><div class="empty"><div class="big">✦</div>Loading…</div></div>
+    </section>
+
+    <!-- FINANCE -->
+    <section id="view-finance" class="view">
+      <div class="fin-period-nav">
+        <button class="week-arrow" id="fin-prev">‹</button>
+        <div id="fin-period-label" class="week-label"></div>
+        <button class="week-arrow" id="fin-next">›</button>
       </div>
-      <div class="card nudge info">
-        <div class="nudge-dot"></div>
-        <div><b>Nudges become smart</b> once your workout and protein logs have real data.</div>
+      <!-- Donut + legend -->
+      <div class="card fin-overview-card">
+        <div class="fin-donut-wrap">
+          <svg id="fin-donut" class="fin-donut" viewBox="0 0 200 200" aria-hidden="true"></svg>
+          <div class="fin-donut-center">
+            <div class="fin-donut-total" id="fin-donut-total">$0</div>
+            <div class="fin-donut-sub">spent</div>
+          </div>
+        </div>
+        <div id="fin-legend" class="fin-legend"></div>
+      </div>
+      <!-- Trend chart -->
+      <div class="card fin-trend-card">
+        <div class="fin-trend-header">
+          <div class="checkin-head" style="margin:0">Spending trend</div>
+          <div class="fin-toggle">
+            <button class="fin-toggle-btn active" id="fin-weekly-btn">Weekly</button>
+            <button class="fin-toggle-btn" id="fin-monthly-btn">Monthly</button>
+          </div>
+        </div>
+        <div class="fin-chart-wrap">
+          <svg id="fin-trend-svg" class="fin-trend-svg" viewBox="0 0 320 90" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+      </div>
+      <!-- Log FAB -->
+      <button class="fin-log-btn" id="fin-log-fab">+ Log Expense</button>
+      <!-- Transactions -->
+      <div id="finance-entries"></div>
+    </section>
+
+    <!-- SLEEP -->
+    <section id="view-sleep" class="view">
+      <div class="card sleep-summary-card">
+        <div class="sleep-avg-row">
+          <span class="sleep-avg-label">7-day avg</span>
+          <span id="sleep-avg" class="sleep-avg-val">—</span>
+        </div>
+        <div id="sleep-bars" class="sleep-bars"></div>
+      </div>
+      <div class="card">
+        <div class="checkin-head">Log last night</div>
+        <div class="sleep-log-row">
+          <input id="sleep-hours" class="sleep-hours-input" type="number" min="0" max="24" step="0.5" placeholder="7.5" inputmode="decimal" />
+          <span class="sleep-unit">hours</span>
+        </div>
+        <div class="sleep-quality-row">
+          <span class="sleep-q-label">Quality</span>
+          <div class="sleep-stars" id="sleep-stars"></div>
+        </div>
+        <button class="btn-log-action" id="sleep-log-btn">Log Sleep</button>
       </div>
     </section>
 
@@ -150,6 +211,8 @@
       <a class="more-item" data-view="calendar"><span>▦</span> Calendar</a>
       <a class="more-item" data-view="checkin"><span>◎</span> Daily Check-in</a>
       <a class="more-item" data-view="nudges"><span>✦</span> Nudges</a>
+      <a class="more-item" data-view="finance"><span>$</span> Finance</a>
+      <a class="more-item" data-view="sleep"><span>◗</span> Sleep</a>
     </div>
   </div>
   <div id="tray-scrim" class="tray-scrim" hidden></div>
@@ -176,6 +239,26 @@
       <div class="modal-actions">
         <button class="btn-cancel" id="protein-modal-cancel">Cancel</button>
         <button class="btn-add" id="protein-modal-add">Add</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Finance log modal -->
+  <div id="finance-modal" class="modal" hidden>
+    <div class="modal-box fin-modal-box">
+      <div class="fin-modal-header">
+        <div class="modal-title">Log Expense</div>
+        <button class="wd-close" id="finance-modal-close">✕</button>
+      </div>
+      <div class="fin-amount-row">
+        <span class="fin-dollar">$</span>
+        <input id="finance-amount" class="fin-amount-input" type="number" min="0" step="0.01" placeholder="0.00" inputmode="decimal" />
+      </div>
+      <div class="finance-cat-chips" id="finance-cat-chips"></div>
+      <input id="finance-note" class="modal-input" type="text" placeholder="Note (optional)" autocomplete="off" />
+      <div class="modal-actions">
+        <button class="btn-cancel" id="finance-modal-cancel">Cancel</button>
+        <button class="btn-add" id="finance-modal-log">Log</button>
       </div>
     </div>
   </div>
