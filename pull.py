@@ -67,37 +67,60 @@ def _anthropic_client():
     return anthropic.Anthropic(api_key=_ascii(key)) if key else anthropic.Anthropic()
 
 
-def get_creds():
-    creds = None
+def _persist_token(creds):
+    """Save the working token to the volume/disk so the next run is silent."""
+    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+    TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
 
-    # Load existing token: prefer the on-disk/volume copy, fall back to env seed.
+
+def _token_candidates():
+    """Available tokens in priority order: the persisted volume/disk copy first,
+    then the env seed (GOOGLE_TOKEN_B64/JSON)."""
+    out = []
     if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES)
+        try:
+            out.append(Credentials.from_authorized_user_file(str(TOKEN_FILE), SCOPES))
+        except Exception:
+            pass
+    token_info = _env_json("GOOGLE_TOKEN_B64", "GOOGLE_TOKEN_JSON")
+    if token_info:
+        try:
+            out.append(Credentials.from_authorized_user_info(token_info, SCOPES))
+        except Exception:
+            pass
+    return out
+
+
+def get_creds():
+    # Try each token source in turn. This self-heals the common Railway case
+    # where a STALE token.json sits on the volume but a fresh one was supplied
+    # via GOOGLE_TOKEN_B64: the dead volume token fails to refresh, we fall
+    # through to the env seed, then persist it back over the stale copy.
+    for creds in _token_candidates():
+        if creds.valid:
+            _persist_token(creds)
+            return creds
+        if creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+                _persist_token(creds)
+                return creds
+            except Exception:
+                continue  # token is dead — try the next source
+
+    # No usable token — run the interactive flow (local only).
+    cred_info = _env_json("GOOGLE_CREDENTIALS_B64", "GOOGLE_CREDENTIALS_JSON")
+    if CREDENTIALS_FILE.exists():
+        flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
+    elif cred_info:
+        flow = InstalledAppFlow.from_client_config(cred_info, SCOPES)
     else:
-        token_info = _env_json("GOOGLE_TOKEN_B64", "GOOGLE_TOKEN_JSON")
-        if token_info:
-            creds = Credentials.from_authorized_user_info(token_info, SCOPES)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            # No usable token — run the interactive flow (local only).
-            cred_info = _env_json("GOOGLE_CREDENTIALS_B64", "GOOGLE_CREDENTIALS_JSON")
-            if CREDENTIALS_FILE.exists():
-                flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
-            elif cred_info:
-                flow = InstalledAppFlow.from_client_config(cred_info, SCOPES)
-            else:
-                sys.exit(
-                    "ERROR: no Google credentials found (need credentials.json or "
-                    "GOOGLE_CREDENTIALS_JSON)."
-                )
-            creds = flow.run_local_server(port=0)
-        # Persist refreshed/new token so the next run is silent.
-        TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-        TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
-
+        sys.exit(
+            "ERROR: no Google credentials found (need credentials.json or "
+            "GOOGLE_CREDENTIALS_JSON)."
+        )
+    creds = flow.run_local_server(port=0)
+    _persist_token(creds)
     return creds
 
 
