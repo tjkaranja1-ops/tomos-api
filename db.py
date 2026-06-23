@@ -81,6 +81,135 @@ EXERCISE_SEED = [
     ("Ab Wheel Rollout",                "none",       "core",       "core",      0),
     ("Dumbbell Fly",                    "dumbbell",   "chest",      "isolation", 0),
     ("Calf Raise",                      "machine",    "calves",     "isolation", 0),
+
+    # ── EXPANSION: common movements ──────────────────────────────────────────
+    # CHEST
+    ("Decline Barbell Bench Press",     "barbell",    "chest",      "push_h",    1),
+    ("Push-Up",                         "bodyweight", "chest",      "push_h",    1),
+    ("Weighted Dip (Chest)",            "bodyweight", "chest",      "push_h",    1),
+    ("Pec Deck Machine",                "machine",    "chest",      "isolation", 0),
+    ("Incline Cable Fly",               "cable",      "chest",      "isolation", 0),
+    ("Smith Machine Bench Press",       "machine",    "chest",      "push_h",    1),
+    ("Svend Press",                     "plate",      "chest",      "isolation", 0),
+    # SHOULDERS
+    ("Arnold Press",                    "dumbbell",   "shoulders",  "push_v",    1),
+    ("Machine Shoulder Press",          "machine",    "shoulders",  "push_v",    1),
+    ("Upright Row (Cable)",             "cable",      "shoulders",  "pull_v",    0),
+    ("Front Raise (Dumbbell)",          "dumbbell",   "shoulders",  "isolation", 0),
+    ("Plate Front Raise",               "plate",      "shoulders",  "isolation", 0),
+    ("Landmine Press",                  "barbell",    "shoulders",  "push_v",    1),
+    ("Cable Y-Raise",                   "cable",      "shoulders",  "isolation", 0),
+    # TRICEPS
+    ("Dip (Triceps)",                   "bodyweight", "triceps",    "push_v",    1),
+    ("Cable Overhead Extension (Rope)", "cable",      "triceps",    "isolation", 0),
+    ("Dumbbell Skull Crusher",          "dumbbell",   "triceps",    "isolation", 0),
+    ("Bench Dip",                       "bodyweight", "triceps",    "push_v",    0),
+    ("JM Press",                        "barbell",    "triceps",    "push_h",    1),
+    # BACK
+    ("T-Bar Row",                       "barbell",    "back",       "pull_h",    1),
+    ("Chest-Supported Row (Machine)",   "machine",    "back",       "pull_h",    1),
+    ("Pendlay Row",                     "barbell",    "back",       "pull_h",    1),
+    ("Meadows Row",                     "barbell",    "back",       "pull_h",    1),
+    ("Inverted Row",                    "bodyweight", "back",       "pull_h",    1),
+    ("Rack Pull",                       "barbell",    "back",       "hinge",     1),
+    ("Seal Row",                        "dumbbell",   "back",       "pull_h",    1),
+    ("Wide-Grip Pull-Up",               "bodyweight", "back",       "pull_v",    1),
+    # BICEPS
+    ("EZ Bar Curl",                     "ez-bar",     "biceps",     "isolation", 0),
+    ("Concentration Curl",              "dumbbell",   "biceps",     "isolation", 0),
+    ("Spider Curl",                     "dumbbell",   "biceps",     "isolation", 0),
+    ("Cable Hammer Curl (Rope)",        "cable",      "biceps",     "isolation", 0),
+    ("Reverse Curl",                    "barbell",    "biceps",     "isolation", 0),
+    ("Bayesian Cable Curl",             "cable",      "biceps",     "isolation", 0),
+    # QUADS
+    ("Smith Machine Squat",             "machine",    "quads",      "squat",     1),
+    ("Pause Squat",                     "barbell",    "quads",      "squat",     1),
+    ("Box Squat",                       "barbell",    "quads",      "squat",     1),
+    ("Sissy Squat",                     "bodyweight", "quads",      "squat",     0),
+    ("Step-Up (Dumbbell)",              "dumbbell",   "quads",      "squat",     1),
+    ("Belt Squat",                      "machine",    "quads",      "squat",     1),
+    ("Pendulum Squat",                  "machine",    "quads",      "squat",     1),
+    # HAMSTRINGS
+    ("Stiff-Leg Deadlift",              "barbell",    "hamstrings", "hinge",     1),
+    ("Good Morning",                    "barbell",    "hamstrings", "hinge",     1),
+    ("Glute-Ham Raise",                 "bodyweight", "hamstrings", "isolation", 0),
+    ("Single-Leg Romanian Deadlift",    "dumbbell",   "hamstrings", "hinge",     1),
+    ("Kettlebell Swing",                "kettlebell", "hamstrings", "hinge",     1),
+    # GLUTES
+    ("Single-Leg Hip Thrust",           "bodyweight", "glutes",     "hinge",     0),
+    ("Glute Kickback (Cable)",          "cable",      "glutes",     "isolation", 0),
+    ("Frog Pump",                       "bodyweight", "glutes",     "isolation", 0),
+    ("Hip Abduction Machine",           "machine",    "glutes",     "isolation", 0),
+    ("Curtsy Lunge",                    "dumbbell",   "glutes",     "squat",     1),
+    ("B-Stance Hip Thrust",             "barbell",    "glutes",     "hinge",     1),
+    # CALVES
+    ("Leg Press Calf Raise",            "machine",    "calves",     "isolation", 0),
+    ("Single-Leg Calf Raise",           "dumbbell",   "calves",     "isolation", 0),
+    ("Donkey Calf Raise",               "machine",    "calves",     "isolation", 0),
+    # CORE
+    ("Russian Twist",                   "bodyweight", "core",       "core",      0),
+    ("Cable Woodchop",                  "cable",      "core",       "core",      0),
+    ("Decline Sit-Up",                  "bodyweight", "core",       "core",      0),
+    ("Dead Bug",                        "bodyweight", "core",       "core",      0),
+    ("Pallof Press",                    "cable",      "core",       "core",      0),
+    ("Side Plank",                      "bodyweight", "core",       "core",      0),
+    ("Toes-to-Bar",                     "bodyweight", "core",       "core",      0),
+    ("Weighted Decline Crunch",         "bodyweight", "core",       "core",      0),
+    ("Mountain Climber",                "bodyweight", "core",       "core",      0),
+
+    # ── POWER — Olympic & explosive barbell ──────────────────────────────────
+    ("Power Clean",                     "barbell",    "power",      "olympic",   1),
+    ("Hang Clean",                      "barbell",    "power",      "olympic",   1),
+    ("Clean & Jerk",                    "barbell",    "power",      "olympic",   1),
+    ("Snatch",                          "barbell",    "power",      "olympic",   1),
+    ("Power Snatch",                    "barbell",    "power",      "olympic",   1),
+    ("Hang Snatch",                     "barbell",    "power",      "olympic",   1),
+    ("Push Press",                      "barbell",    "power",      "olympic",   1),
+    ("Push Jerk",                       "barbell",    "power",      "olympic",   1),
+    ("Split Jerk",                      "barbell",    "power",      "olympic",   1),
+    ("Clean Pull",                      "barbell",    "power",      "olympic",   1),
+    ("Snatch-Grip High Pull",          "barbell",    "power",      "olympic",   1),
+    ("Barbell High Pull",               "barbell",    "power",      "olympic",   1),
+    ("Jump Squat (Barbell)",            "barbell",    "power",      "olympic",   1),
+    ("Trap Bar Jump",                   "barbell",    "power",      "olympic",   1),
+    ("Dumbbell Snatch",                 "dumbbell",   "power",      "olympic",   1),
+    ("Kettlebell Clean",                "kettlebell", "power",      "olympic",   1),
+
+    # ── PLYOMETRIC — jumps & throws ──────────────────────────────────────────
+    ("Box Jump",                        "bodyweight", "plyometric", "plyo",     1),
+    ("Seated Box Jump",                 "bodyweight", "plyometric", "plyo",     1),
+    ("Single-Leg Box Jump",            "bodyweight", "plyometric", "plyo",     1),
+    ("Depth Jump",                      "bodyweight", "plyometric", "plyo",     1),
+    ("Depth Drop",                      "bodyweight", "plyometric", "plyo",     1),
+    ("Broad Jump",                      "bodyweight", "plyometric", "plyo",     1),
+    ("Tuck Jump",                       "bodyweight", "plyometric", "plyo",     0),
+    ("Lateral Bound",                   "bodyweight", "plyometric", "plyo",     0),
+    ("Pogo Hops",                       "bodyweight", "plyometric", "plyo",     0),
+    ("Hurdle Hops",                     "bodyweight", "plyometric", "plyo",     0),
+    ("Plyo Push-Up",                    "bodyweight", "plyometric", "plyo",     1),
+    ("Med Ball Slam",                   "med-ball",   "plyometric", "plyo",     0),
+    ("Med Ball Chest Pass",             "med-ball",   "plyometric", "plyo",     0),
+    ("Overhead Med Ball Throw",         "med-ball",   "plyometric", "plyo",     0),
+    ("Med Ball Rotational Throw",       "med-ball",   "plyometric", "plyo",     0),
+
+    # ── CONDITIONING — sprints, sleds, carries ───────────────────────────────
+    ("Sprint (40yd)",                   "none",       "conditioning", "sprint",   1),
+    ("Sprint (100m)",                   "none",       "conditioning", "sprint",   1),
+    ("Flying Sprint",                   "none",       "conditioning", "sprint",   1),
+    ("Hill Sprint",                     "none",       "conditioning", "sprint",   1),
+    ("Shuttle Run (Pro Agility)",       "none",       "conditioning", "sprint",   1),
+    ("Sled Push (Prowler)",             "sled",       "conditioning", "carry",    1),
+    ("Sled Pull",                       "sled",       "conditioning", "carry",    1),
+    ("Sled Drag (Backward)",            "sled",       "conditioning", "carry",    1),
+    ("Farmer's Carry",                  "dumbbell",   "conditioning", "carry",    1),
+    ("Suitcase Carry",                  "dumbbell",   "conditioning", "carry",    1),
+    ("Yoke Walk",                       "yoke",       "conditioning", "carry",    1),
+    ("Sandbag Carry",                   "sandbag",    "conditioning", "carry",    1),
+    ("Tire Flip",                       "tire",       "conditioning", "carry",    1),
+    ("Battle Ropes",                    "ropes",      "conditioning", "metcon",   0),
+    ("Assault Bike Sprint",             "machine",    "conditioning", "metcon",   1),
+    ("Rowing Erg Sprint",               "machine",    "conditioning", "metcon",   1),
+    ("Bear Crawl",                      "bodyweight", "conditioning", "metcon",   1),
 ]
 
 # Template seed: (template_name, [(exercise_name, default_sets, default_reps), ...])
@@ -123,9 +252,15 @@ TEMPLATE_SEED = [
 
 
 def get_conn():
-    conn = sqlite3.connect(DB_PATH)
+    # timeout: wait up to 10s for a lock instead of erroring out immediately.
+    conn = sqlite3.connect(DB_PATH, timeout=10.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL lets reads (news polling, page loads) and writes happen concurrently
+    # without "database is locked" errors — the cause of intermittent add-exercise
+    # failures. busy_timeout backs up the connect timeout at the SQLite level.
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 10000")
     return conn
 
 
@@ -263,21 +398,27 @@ def init_db():
     _alter_add(conn, "workout_sets", "rpe", "REAL")
     _alter_add(conn, "workout_sets", "is_pr", "INTEGER DEFAULT 0")
     conn.commit()
-    seed_db(conn)
+    sync_exercises(conn)   # idempotent — runs every boot
+    seed_templates(conn)   # one-time — only on a fresh DB
     conn.close()
 
 
-def seed_db(conn):
-    if conn.execute("SELECT COUNT(*) FROM exercises").fetchone()[0] > 0:
-        return  # already seeded
-
-    now = datetime.now().isoformat()
-
-    # Seed exercises
+def sync_exercises(conn):
+    """Idempotent library sync. Runs on EVERY boot so new movements added to
+    EXERCISE_SEED reach the live DB. INSERT OR IGNORE means existing rows and
+    any user-created custom exercises are left untouched."""
     conn.executemany(
         "INSERT OR IGNORE INTO exercises(name, equipment, muscle_group, movement_pattern, is_compound) VALUES (?,?,?,?,?)",
         EXERCISE_SEED,
     )
+    conn.commit()
+
+
+def seed_templates(conn):
+    if conn.execute("SELECT COUNT(*) FROM workout_templates").fetchone()[0] > 0:
+        return  # already seeded — don't clobber user edits
+
+    now = datetime.now().isoformat()
 
     # Seed templates
     for tname, exercises in TEMPLATE_SEED:

@@ -35,7 +35,7 @@ const FOOD_SHORTCUTS = [
 
 const SET_TYPES = ["working", "warmup", "drop", "failure", "amrap"];
 const SET_TYPE_LABEL = { working: "1", warmup: "W", drop: "D", failure: "F", amrap: "A" };
-const MUSCLE_GROUPS = ["All", "chest", "back", "shoulders", "quads", "hamstrings", "glutes", "biceps", "triceps", "calves", "core"];
+const MUSCLE_GROUPS = ["All", "chest", "back", "shoulders", "quads", "hamstrings", "glutes", "biceps", "triceps", "calves", "core", "power", "plyometric", "conditioning"];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function toast(msg) {
@@ -79,9 +79,13 @@ function senderName(from) {
 }
 
 function elapsedStr(startIso) {
-  const secs = Math.floor((Date.now() - new Date(startIso)) / 1000);
-  const m = Math.floor(secs / 60), s = secs % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(startIso)) / 1000));
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60), s = secs % 60;
+  // Roll into H:MM:SS once past the hour; stay M:SS below it.
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${m}:${String(s).padStart(2, "0")}`;
 }
 
 function fmtCountdown(secs) {
@@ -148,15 +152,31 @@ function setHeader() {
 
 $("#refresh").addEventListener("click", async () => {
   const btn = $("#refresh");
+  if (btn.classList.contains("spin")) return;  // already refreshing
   btn.classList.add("spin");
   toast("Pulling Gmail + Calendar…");
   try {
-    const r = await fetch(`${API}/refresh`, { method: "POST" });
-    if (!r.ok) throw new Error();
-    const data = await r.json();
+    const start = await fetch(`${API}/refresh`, { method: "POST" });
+    if (!start.ok) throw new Error();
+
+    // The pull runs in the background server-side; poll until it finishes
+    // (up to ~90s) so a slow Gmail/Claude call no longer looks like a failure.
+    let state = null;
+    for (let i = 0; i < 45; i++) {
+      await new Promise((res) => setTimeout(res, 2000));
+      const r = await fetch(`${API}/refresh/status`);
+      if (!r.ok) continue;
+      state = await r.json();
+      if (state.status === "idle") break;
+    }
+
+    if (state && state.error) { toast(`Refresh failed: ${state.error}`); return; }
     await loadAll();
     loadNews(true);
-    toast(`${data.todos_added} new task${data.todos_added === 1 ? "" : "s"} · ${data.events} events`);
+    const data = state && state.result;
+    toast(data
+      ? `${data.todos_added} new task${data.todos_added === 1 ? "" : "s"} · ${data.events} events`
+      : "Refreshing in background — check back in a moment");
   } catch { toast("Refresh failed"); }
   finally { btn.classList.remove("spin"); }
 });

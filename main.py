@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
         scheduler.shutdown(wait=False)
 
 
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.9.1"
 app = FastAPI(title="TomOS API", version=APP_VERSION, lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -273,9 +273,37 @@ def emails():
 
 # ── Refresh ───────────────────────────────────────────────────────────────────
 
+# The full Gmail + Calendar + Claude pull takes 15-30s+. Running it inside the
+# request meant the phone/proxy timed out and the app showed "Refresh failed"
+# even though the server had finished and the data was updated. Now we kick it
+# off in a background thread and let the client poll /refresh/status.
+_refresh_lock = threading.Lock()
+_refresh_state = {"running": False, "result": None, "error": None, "finished_at": None}
+
+
+def _run_pull_bg():
+    try:
+        result = run_pull()
+        _refresh_state.update(result=result, error=None)
+    except Exception as e:
+        _refresh_state.update(result=None, error=str(e) or e.__class__.__name__)
+    finally:
+        _refresh_state.update(running=False, finished_at=datetime.now().isoformat())
+
+
 @app.post("/refresh")
 def refresh():
-    return run_pull()
+    with _refresh_lock:
+        if _refresh_state["running"]:
+            return {"status": "running"}
+        _refresh_state.update(running=True, result=None, error=None, finished_at=None)
+    threading.Thread(target=_run_pull_bg, daemon=True).start()
+    return {"status": "started"}
+
+
+@app.get("/refresh/status")
+def refresh_status():
+    return {"status": "running" if _refresh_state["running"] else "idle", **_refresh_state}
 
 
 # ── Combined briefing ─────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 // TomOS service worker — network-first so every deploy shows up immediately.
 // The cache is only an offline fallback for the app shell. (Earlier versions
 // were cache-first, which made new deploys appear stale — bad for fast iteration.)
-const CACHE = "tomos-v8";
+const CACHE = "tomos-v9";
 const SHELL = ["/", "/static/styles.css", "/static/app.js", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
