@@ -1576,5 +1576,23 @@ async function boot() {
 boot();
 
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  let refreshing = false;
+  const hadController = !!navigator.serviceWorker.controller;
+  // When a new service worker takes over (after a deploy), reload once so the
+  // page runs the fresh JS/CSS instead of the cached copy. Skip on the very
+  // first install (no prior controller) to avoid a needless reload.
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (refreshing || !hadController) return;
+    refreshing = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register("/sw.js").then((reg) => {
+    reg.update();
+    // iOS PWAs resume from the app switcher without reloading the page, so a
+    // new deploy is never noticed. Re-check for an update whenever the app
+    // regains focus — the new SW then activates and triggers the reload above.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") reg.update();
+    });
+  }).catch(() => {});
 }
